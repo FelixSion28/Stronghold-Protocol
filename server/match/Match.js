@@ -455,6 +455,7 @@ export class Match {
     if (!ps || ps.isBot || this.disposed) return;
     this.guard(() => {
       ps.connected = false;
+      this.refreshDraftPriority();
       // a paused solo battle resumes (the server takes the field over; nobody is left to resume it)
       this._resume();
       if (this.clientCombat) this._authorityLost(ps, 'disconnect');
@@ -468,6 +469,7 @@ export class Match {
     this.guard(() => {
       const was = ps.connected;
       ps.connected = true;
+      this.refreshDraftPriority();
       this._resync(ps);
       if (!was) this.markPublic();
     });
@@ -1161,6 +1163,7 @@ export class Match {
   setAutoplay(ps, on) {
     if (ps.autoplay === on) return OK;
     ps.autoplay = on;
+    this.refreshDraftPriority();
     this.markPublic();
     if (on) this.kickBot(ps);
     return OK;
@@ -1313,6 +1316,32 @@ export class Match {
   // ===================================================================================================
   // BAND_DRAFT
 
+  /** Active manual pickers go first; disconnected or AI-controlled seats wait with the bots. */
+  manualDraftPicker(ps) { return !!ps && ps.alive && ps.connected && !ps.botControlled; }
+
+  /** Stable partition after one shuffle, preserving the random order within each priority group. */
+  prioritizeDraftOrder(order, from = 0) {
+    const pending = order.slice(from);
+    const manual = [];
+    const automatic = [];
+    for (const pid of pending) (this.manualDraftPicker(this.players.get(pid)) ? manual : automatic).push(pid);
+    const next = [...manual, ...automatic];
+    if (next.every((pid, i) => pid === pending[i])) return false;
+    order.splice(from, pending.length, ...next);
+    return true;
+  }
+
+  /** Reorder only unplayed turns when a player disconnects, reconnects, or toggles AI control. */
+  refreshDraftPriority() {
+    const d = this.phase === PHASE.BAND_DRAFT ? this.draft : this.phase === PHASE.SP_DRAFT ? this.sp : null;
+    if (!d || d.idx >= d.order.length) return;
+    const turn = d.order[d.idx];
+    if (!this.prioritizeDraftOrder(d.order, d.idx)) return;
+    if (turn === d.order[d.idx]) { this.markPublic(); return; }
+    if (this.phase === PHASE.BAND_DRAFT) this.startDraftTurn();
+    else this.startSpTurn();
+  }
+
   /**
    * The strategy draft (user playtest #4 item 4): ONE countdown — every turn has the same clock, BAND_TURN_SECONDS, and
    * m.public.deadline is the current turn's end (= draft.turnDeadline; the step header and the turn indicator show the
@@ -1325,6 +1354,7 @@ export class Match {
     this.phase = PHASE.BAND_DRAFT;
     const order = this.order.map((p) => p.playerId);
     if (!this.isSolo) this.rngDraft.shuffle(order);
+    this.prioritizeDraftOrder(order);
     const skips = this.isSolo ? 0 : this.gd.bandDraft.skipsPerPlayer;
     const untimed = this.soloUntimed;
     this.draft = {
@@ -1351,6 +1381,7 @@ export class Match {
     this.cancel(this._turnTimer);
     this._turnTimer = null;
     while (d.idx < d.order.length && d.picks[d.order[d.idx]]) d.idx++;
+    this.prioritizeDraftOrder(d.order, d.idx);
     if (d.idx >= d.order.length) {
       d.turnDeadline = 0;
       this.deadline = 0;
@@ -1474,10 +1505,13 @@ export class Match {
     if (d.picks[ps.playerId]) return fail(ERR.ALREADY);
     if (this.draftTurn() !== ps.playerId) return fail(ERR.NOT_YOUR_TURN);
     if (!(d.skipsLeft[ps.playerId] > 0)) return fail(ERR.ALREADY, 'no skip left');
-    if (d.order.length - d.idx <= 1) return fail(ERR.BAD_TARGET, 'nobody to pass to');
+    if (!d.order.slice(d.idx + 1).some((pid) => !d.picks[pid] && this.manualDraftPicker(this.players.get(pid)))) {
+      return fail(ERR.BAD_TARGET, 'no manual teammate to pass to');
+    }
     d.skipsLeft[ps.playerId]--;
     d.order.splice(d.idx, 1);
     d.order.push(ps.playerId);
+    this.prioritizeDraftOrder(d.order, d.idx);
     this.startDraftTurn();
     return OK;
   }
@@ -1566,7 +1600,8 @@ export class Match {
     this.phase = PHASE.SP_DRAFT;
     const order = alive.map((p) => p.playerId);
     if (!this.isSolo) this.rngDraft.shuffle(order);
-    // untimed: solo and any single-human match (soloUntimed); the co-op order / 6 cards stay
+    this.prioritizeDraftOrder(order);
+    // untimed: solo and any single-human match (soloUntimed); the co-op cards still scale with living players
     const untimed = this.soloUntimed;
     this.sp = { ...draft, order, idx: 0, picks: {}, taken: {}, untimed, turnDeadline: 0 };
     this.setDeadline(0);
@@ -1589,6 +1624,7 @@ export class Match {
       if (ps && ps.alive && s.picks[ps.playerId] == null) break;
       s.idx++;
     }
+    this.prioritizeDraftOrder(s.order, s.idx);
     const available = s.cards.map((c) => c.idx).filter((i) => s.taken[i] == null);
     if (s.idx >= s.order.length || !available.length) { this.setDeadline(0); this.later(0, () => this.finishSpDraft()); return; }
     const token = ++this._turnToken;

@@ -2,7 +2,8 @@
 // … waiting / ⌛ 决策中 / chosen band ✓), current picker highlighted; centre = grid of every band allowed
 // for the mode type (icon, name, LP); a band a teammate already picked carries the picker's avatar and is marked
 // 队友已选 — it cannot be chosen again (research 09 §5, guidebook 策略与轮选; the server refuses it too); right =
-// detail pane (icon, 初始生命值, name, effect name + rich description) with 跳过 (co-op, once) and 确认选择.
+// detail pane (icon, 初始生命值, name, effect name + rich description) with 跳过 (co-op, once while another
+// manual player is waiting) and 确认选择.
 // One countdown (user playtest #4 item 4): every turn has the same clock (Match BAND_TURN_SECONDS, m.public.draft
 // turnSeconds) and the step header counts it down — m.public.deadline IS the turn's end, the same number as the
 // current picker's row. The highlighted band (the detail pane's) is what a turn that runs out takes: every change of it
@@ -124,11 +125,23 @@ export function autoPickBand(sel, { bands, taken, myPick = null, defaultId = DEF
  *   selected: the auto pick is the highlighted band (not the default standing in for a band a teammate holds)
  */
 export function draftTip({ timed, turnSeconds = null, autoName = null, selected = true }) {
-  const skip = '联合模拟在选择策略时可以进行一次跳过';
+  const skip = '联合模拟有其他手动玩家待选时可跳过一次';
   if (!timed) return `${skip}；本局不限时`;
   const clock = Number(turnSeconds) > 0 ? `每位博士有 ${Math.round(turnSeconds)} 秒` : '每位博士限时决策';
   if (!autoName) return `${skip}；${clock}`;
   return `${skip}；${clock}，超时将自动选择${selected ? '当前选中的' : ''}「${autoName}」`;
+}
+
+/** A skip may only yield to another player who can still choose manually, before any automated seat. */
+export function hasManualTeammateAfter(draft, players, myId) {
+  if (!Array.isArray(draft?.order)) return false;
+  const at = draft.order.indexOf(myId);
+  if (at < 0) return false;
+  const picks = draft.picks instanceof Map ? draft.picks : new Map(Object.entries(draft.picks || {}));
+  return draft.order.slice(at + 1).some((pid) => {
+    const p = players.find((row) => row.playerId === pid);
+    return p && p.alive && p.connected && !p.isBot && !p.autoplay && !picks.has(pid);
+  });
 }
 
 /**
@@ -183,7 +196,8 @@ export function BandDraftScreen() {
   const myPick = draft.picks.get(myId) || priv?.bandId || null;
   const myTurn = !myPick && (solo || draft.turnPid === myId);
   const skipsLeft = draft.skipsLeft.has(myId) ? draft.skipsLeft.get(myId) : (skipped ? 0 : 1);
-  const canSkip = !solo && myTurn && skipsLeft > 0 && draft.order.length > 1;
+  const manualTeammateAfter = hasManualTeammateAfter(draft, players, myId);
+  const canSkip = !solo && myTurn && skipsLeft > 0 && manualTeammateAfter;
   const taken = solo ? new Map() : teammateBands(draft.picks, myId);
   const pickers = new Map(); // bandId → players
   for (const [pid, bid] of draft.picks) {
@@ -254,7 +268,7 @@ export function BandDraftScreen() {
       total=${clock ? clock.total : null} onExit=${() => setExit(true)} />
     <main class="draft__main">
       <aside class="draft-order">
-        <h3 class="brief-h"><span>${solo ? '独立模拟' : '决策顺序'}</span><${MicroLabel}>${solo ? 'FREE PICK' : 'RANDOM ORDER'}</${MicroLabel}></h3>
+        <h3 class="brief-h"><span>${solo ? '独立模拟' : '决策顺序'}</span><${MicroLabel}>${solo ? 'FREE PICK' : 'MANUAL FIRST'}</${MicroLabel}></h3>
         <div class="draft-order__list" ref=${orderRef}>
         ${(solo ? players.filter((p) => p.playerId === myId) : draft.order.map((pid) => players.find((p) => p.playerId === pid)).filter(Boolean)).map((p, i) => {
           const picked = draft.picks.get(p.playerId) || (p.playerId === myId ? myPick : p.bandId) || null;
@@ -319,7 +333,7 @@ export function BandDraftScreen() {
             : !myTurn ? html`<p class="draft-detail__status"><${Icon} name="hourglass" />${turnName ? `${turnName} 正在决策…` : '等待轮到你'}</p>` : null}
           <div class="draft-detail__btns">
             ${!solo ? html`<${Button} variant="secondary" size="lg" icon="chevrons" disabled=${!canSkip} loading=${busy === 'skip'} onClick=${skip}
-              title=${skipsLeft > 0 ? '跳过本轮，稍后再选' : '跳过次数已用完'}>跳过${skipsLeft > 0 ? '' : '（已用）'}<//>` : null}
+              title=${skipsLeft <= 0 ? '跳过次数已用完' : manualTeammateAfter ? '让其他手动玩家先选，稍后再选' : '没有其他待选的手动玩家'}>跳过${skipsLeft > 0 ? '' : '（已用）'}<//>` : null}
             <${Button} variant="primary" size="lg" icon="check" disabled=${!myTurn || !band || selTaken} loading=${busy === 'pick'} onClick=${confirm}>${selTaken ? '队友已选' : '确认选择'}<//>
           </div>
         </div>
