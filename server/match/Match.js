@@ -2044,7 +2044,8 @@ export class Match {
   _uniteOpts(plan, limit) {
     const { wave, players } = uniteBattleOpts(this, plan, limit);
     return {
-      seed: deriveSeed(this.seed, `u:${this.round}:${plan.round || 1}`),
+      // Keep the original first-wave seed so a team without a second helper wave replays identically.
+      seed: deriveSeed(this.seed, plan.round > 1 ? `u:${this.round}:${plan.round}` : `u:${this.round}`),
       kind: 'unite',
       modeId: this.modeId,
       round: this.round,
