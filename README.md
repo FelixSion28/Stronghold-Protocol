@@ -1,3 +1,17 @@
+# 卫戍协议最高20人联机版！基于sganggs大佬的**[Stronghold-Protocol](https://github.com/sganggs/Stronghold-Protocol)**开发。
+
+## 多人适配设计：
+
+boss血量随人数线性增长
+
+牌库分组独立，每3-4人共享一个牌库
+
+超过8人时将有两轮兜兜兜
+
+玩家列表ui扩展，机变选择ui扩展
+
+现在所有选择阶段优先人类玩家进行选择
+
 # 卫戍协议：盟约 · Stronghold Protocol: Alliance
 
 《明日方舟》季节性自走棋塔防玩法「卫戍协议：盟约」的**非官方同人复刻**：浏览器即开即玩，单人或最多 20 人联机合作。
