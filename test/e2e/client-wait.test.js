@@ -28,11 +28,20 @@ function fakePage(trueAfter) {
 }
 
 test('a wait longer than one slice keeps polling the same predicate until it holds', async () => {
-  const page = fakePage(95);
+  // A wall-clock predicate can turn true while Node is busy with other test files, making the call count flaky.
+  // Force three slice timeouts before success so the retry contract is tested independent of scheduling.
+  const calls = [];
+  const page = {
+    calls,
+    waitForFunction(fn, opts, ...args) {
+      calls.push({ fn, opts, args });
+      return calls.length < 4 ? Promise.reject(timeoutError(opts.timeout)) : Promise.resolve({ handle: 'ok', args });
+    },
+  };
   const fn = () => true;
   const got = await waitForFunctionLong(page, fn, { timeout: 1000, polling: 200, slice: 30 }, 'a', 2);
   assert.deepEqual(got, { handle: 'ok', args: ['a', 2] });
-  assert.ok(page.calls.length >= 4, `sliced (${page.calls.length} calls)`);
+  assert.equal(page.calls.length, 4, 'three timed-out slices followed by a successful one');
   for (const c of page.calls) {
     assert.equal(c.fn, fn);
     assert.deepEqual(c.args, ['a', 2]);
