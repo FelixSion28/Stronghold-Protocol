@@ -9,10 +9,10 @@
 //     LEFT, UP / DOWN unchanged (DESIGN §3, research 09 §1.2 ConvertChessPositionInfoToBossMap); board rows 9–12 →
 //     boss rows 2–5, sim/constants BOSS_ROW_OFFSET). `bossFieldPlacement` gives that mapping for UIs / tools.
 //   * Shared boss HP pool (DESIGN §20.10, GameData.bossPoolShare): one pool shared by every boss field (official tip
-//     "所有人将一起对敌方领袖造成伤害"); co-op = bloodPoint[difficulty] whatever the number of alive players (notice 5114's
-//     "敌方领袖的总生命值不变" is about the mirrored copies of a pair field sharing it, not about that number); config
-//     bossHpScale.aliveScaling true scales it × alive / 4 (巴哈姆特 12294 "聯機隊友(撤退/死掉)變少，最後boss血條也會變少" — one
-//     community note, no proportion; off until the user confirms it); solo = bloodPoint × config bossHpScale.solo (0.25,
+//     "所有人将一起对敌方领袖造成伤害"); co-op = bloodPoint[difficulty] × living players / 4, including larger rooms.
+//     Notice 5114's "敌方领袖的总生命值不变" is about the mirrored copies of a pair field sharing the pool; the generated
+//     data's aliveScaling=false records the earlier fixed-pool decision and is superseded here. Solo = bloodPoint ×
+//     config bossHpScale.solo (0.25,
 //     flagged unknown); × the tuning bossHpMul when data/tuning.json still has one (docs/BALANCE.md); bosses are never
 //     scaled by enemyScale.
 //   * Overtime: bossTurnHpReduceTime counts REAL seconds like the level's 120 s maxPlayTime (which runs out first; the
@@ -35,6 +35,7 @@
 
 import { BOSS_ROW_OFFSET, COLS, BOSS_POOL_MIN_HP } from '../sim/constants.js';
 import { mirrorDir, normDir } from '../sim/dir.js';
+import { coopHiddenLayerThreshold } from '../../shared/playerCapacity.js';
 
 /**
  * BOSS_HIT ticker thresholds (activity_table autoChessData.broadcastList comment_boss_hit_1..3, paramList 0.2 / 0.5 /
@@ -75,7 +76,10 @@ export function bossPoolHp(gd, bossId, aliveCount) {
   else {
     const scale = gd.mode.bossHpScale && typeof gd.mode.bossHpScale === 'object' ? gd.mode.bossHpScale : {};
     const cfg = gd.config.bossHpScale && typeof gd.config.bossHpScale === 'object' ? gd.config.bossHpScale : {};
-    share = gd.isSolo ? (Number.isFinite(scale.solo) ? scale.solo : Number.isFinite(cfg.solo) ? cfg.solo : 0.25) : 1;
+    const full = Math.max(1, Math.floor(Number(scale.aliveFull ?? cfg.aliveFull) || 4));
+    const alive = Number.isFinite(aliveCount) && aliveCount >= 1 ? Math.floor(aliveCount) : full;
+    share = gd.isSolo ? (Number.isFinite(scale.solo) ? scale.solo : Number.isFinite(cfg.solo) ? cfg.solo : 0.25)
+      : (Number.isFinite(scale.coop) ? scale.coop : Number.isFinite(cfg.coop) ? cfg.coop : 1) * alive / full;
   }
   return Math.max(1, Math.round(base * share * tune));
 }
@@ -104,6 +108,14 @@ export class SharedBossPool {
     }
     return dealt;
   }
+
+  /** A player left during the fight: preserve the remaining HP percentage at the new team size. */
+  rescale(maxHp) {
+    const next = Math.max(1, Math.round(maxHp));
+    if (next === this.maxHp) return;
+    this.hp = this.hp > 0 ? Math.max(1, Math.min(next, Math.round(this.hp * next / this.maxHp))) : 0;
+    this.maxHp = next;
+  }
 }
 
 /**
@@ -111,10 +123,10 @@ export class SharedBossPool {
  * @param {import('./gamedata.js').GameData} gd
  * @param {{ layerSum: number, teamLp: number }} s
  */
-export function hiddenEligible(gd, { layerSum, teamLp }) {
+export function hiddenEligible(gd, { layerSum, teamLp, playerCount = 4 }) {
   const hc = gd.hiddenCore;
   if (!gd.hiddenRound || !hc.difficulties.includes(gd.difficulty)) return false;
-  const threshold = gd.isSolo ? hc.single : hc.multi;
+  const threshold = gd.isSolo ? hc.single : coopHiddenLayerThreshold(hc.multi, playerCount);
   return layerSum > threshold && teamLp > hc.minTeamLpExclusive;
 }
 

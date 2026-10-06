@@ -2,8 +2,8 @@
 // data/choices.json).
 //
 // Generation (generateDraft): the family is a weighted pick from choices.schedule[modeId].rounds[r].families; the card
-// count is `cards` (co-op 6, solo 3):
-//   bounty  悬赏决策  six distinct cards.bounty entries (solo: 3 of them) built like the official draft of the round
+// count is `cards` (co-op max(6, living players + 2), capped at 22; solo 3):
+//   bounty  悬赏决策  six distinct cards.bounty entries (solo: 3 of them); larger co-op drafts repeat that six-card mix
 //                     (`bountyDraftCards`; player feedback after 0.1.0, report #2 — late bounty enemies in the early
 //                     drafts; 66 official screenshots of 22 matches, tools/build-data.mjs BOUNTY_INITIAL_SETS): schedule
 //                     `bountyDraft` names the kind and choices.json `bountyDrafts[kind]` its card lists — the event is a
@@ -62,6 +62,8 @@
 //   cards with `team: true` apply to the picker AND every alive teammate ("若存在其他队友则他们也获得").
 
 import { weightedPick } from './waves.js';
+import { MAX_DRAFT_CARDS } from '../../shared/constants.js';
+import { coopDraftCardCount } from '../../shared/playerCapacity.js';
 
 export const FAMILY_NAMES = { bounty: '悬赏决策', supply: '道具补给', shop: '机密商店', tactic: '战术决策' };
 
@@ -136,11 +138,12 @@ function itemCard(gd, id) {
  * Build the draft cards for an SP round.
  * @returns {{ family: string, name: string, desc: string, eventId: string|null, cards: object[] } | null}
  */
-export function generateDraft(gd, rng, round, { stageId = null, bondAvailable = null } = {}) {
+export function generateDraft(gd, rng, round, { stageId = null, bondAvailable = null, playerCount = 4 } = {}) {
   const sch = scheduleFor(gd, round);
   const fams = Array.isArray(sch.families) && sch.families.length ? sch.families.map((f) => [f.family, f.weight]) : [['supply', 1]];
   let family = weightedPick(rng, fams) || 'supply';
-  const n = Number.isInteger(sch.cards) && sch.cards > 0 ? Math.min(sch.cards, 6) : formatCount(gd);
+  const scheduled = Number.isInteger(sch.cards) && sch.cards > 0 ? sch.cards : formatCount(gd);
+  const n = Math.min(MAX_DRAFT_CARDS, gd.isSolo ? scheduled : Math.max(scheduled, coopDraftCardCount(playerCount)));
   const opts = { stageId, bondAvailable, round };
   let cards = buildCards(gd, rng, family, n, sch, opts);
   if (!cards.length && family !== 'supply') { family = 'supply'; cards = buildCards(gd, rng, family, n, sch, opts); }
@@ -316,9 +319,13 @@ function bountyDraftCards(gd, rng, n, sch, round) {
   const eligible = all.filter((c) => c && draftBounty(c, kind) && gd.enemy(c.enemyKey));
   const byId = new Map(eligible.map((c) => [c.effectId, c]));
   const spec = gd.choices.bountyDrafts && gd.choices.bountyDrafts[kind];
-  const out = spec ? structuredBounty(rng, kind, spec, byId) : [];
+  const out = spec ? structuredBounty(rng, kind, spec, byId).slice(0, 6) : [];
   const taken = new Set(out);
-  if (out.length < n) out.push(...drawDistinct(rng, eligible, n - out.length, taken));
+  const baseCount = Math.min(n, 6);
+  if (out.length < baseCount) out.push(...drawDistinct(rng, eligible, baseCount - out.length, taken));
+  // Every six cards retain the event's original strength mix; extra seats receive another shuffled copy of it.
+  const base = out.slice();
+  while (n > 6 && base.length && out.length < n) out.push(...rng.shuffle(base.slice()).slice(0, n - out.length));
   return rng.shuffle(out).slice(0, n).map((c) => bountyCard(gd, c));
 }
 
@@ -340,7 +347,8 @@ export function shopDraftCards(gd, rng, n, round = null) {
     return eligibleItems(gd, 1, 6);
   };
   const out = [];
-  for (const slot of slots) {
+  for (let i = 0; i < Math.max(n, slots.length); i++) {
+    const slot = slots[i % slots.length];
     const kinds = Object.entries(slot).filter(([k]) => k === 'coin' ? !!coin : Number.isInteger(Number(k)));
     const kind = weightedPick(rng, kinds);
     if (kind == null) continue;
@@ -386,7 +394,7 @@ function buildCards(gd, rng, family, n, sch, { stageId = null, bondAvailable = n
   if (family === 'bounty') return bountyDraftCards(gd, rng, n, sch, round);
   if (family === 'shop') {
     const cards = shopDraftCards(gd, rng, n, round);
-    if (cards) return cards;
+    if (cards && cards.length) return cards;
   }
   if (family === 'supply' || family === 'shop') {
     let lo = 1;
@@ -483,8 +491,8 @@ function applyDefault(m, ps, card) {
         break;
       case 'single_special_choice_gain_bond_chess': {
         for (let i = 0; i < count; i++) {
-          const id = m.pool.roll(m.rngMeta, { maxTier: Math.max(1, ps.shop.level), filter: (cid) => { const c = gd.chess(cid); return !!(c && Array.isArray(c.bonds) && c.bonds.includes(bs.bond)); } })
-            || m.pool.roll(m.rngMeta, { maxTier: 6, filter: (cid) => { const c = gd.chess(cid); return !!(c && Array.isArray(c.bonds) && c.bonds.includes(bs.bond)); } });
+          const id = ps.pool.roll(m.rngMeta, { maxTier: Math.max(1, ps.shop.level), filter: (cid) => { const c = gd.chess(cid); return !!(c && Array.isArray(c.bonds) && c.bonds.includes(bs.bond)); } })
+            || ps.pool.roll(m.rngMeta, { maxTier: 6, filter: (cid) => { const c = gd.chess(cid); return !!(c && Array.isArray(c.bonds) && c.bonds.includes(bs.bond)); } });
           if (id) ps.acquireChess(id, { source: 'choice' });
         }
         handled = true;

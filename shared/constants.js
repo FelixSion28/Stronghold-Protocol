@@ -5,7 +5,12 @@ export const PROTOCOL_VERSION = 1;
  * (test/version.test.js); PROTOCOL_VERSION above is the separate wire-format number. */
 export const APP_VERSION = '0.1.3';
 
-export const MAX_SEATS = 4;
+/** Four players remain the baseline for economy and leader HP. Capacity includes human and AI seats. */
+export const BASE_SEATS = 4;
+export const MAX_SEATS = 20;
+export const DEFAULT_SEATS = 8;
+export const ROOM_CAPACITIES = Object.freeze([4, 8, 10, 16, 20]);
+export const MAX_DRAFT_CARDS = MAX_SEATS + 2;
 /**
  * Spectator seats of a co-op room (community report #26, owner's decision 2026-10-04) — a remake feature: the official
  * room has 1–4 players and no spectator seat (there only eliminated players and 联防 bystanders watch, research 09 §3.1).

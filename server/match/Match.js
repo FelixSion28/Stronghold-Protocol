@@ -12,9 +12,9 @@
 //   opts.mode        'solo' | 'coop'
 //   opts.difficulty  'FUNNY'|'NORMAL'|'HARD'|'ABYSS'
 //   opts.modeId      string                     modeIdFor(mode, difficulty), e.g. 'mode_multi_hard'
-//   opts.seats       Array<{ seat: 0..3, playerId: string, name: string, isBot: boolean, connected: boolean,
+//   opts.seats       Array<{ seat: 0..19, playerId: string, name: string, isBot: boolean, connected: boolean,
 //                            loadout?: { [baseChessId]: { skill: index, module: uniEquipId|'none'|null } } | null }>
-//                    sorted by seat, 1–4 entries, ≥ 1 human; solo ⇒ exactly 1 human and no bots.
+//                    sorted by seat, 1–20 entries, ≥ 1 human; solo ⇒ exactly 1 human and no bots.
 //                    Bot playerIds start with 'ai_'. Seat indexes may have gaps (e.g. seats 0 and 2).
 //                    `loadout` (DESIGN §16, optional): the human's operator loadout, already checked by the lobby
 //                    (shared/protocol.js checkLoadout); PlayerState re-checks it against opts.data and ignores it for bots.
@@ -136,14 +136,14 @@ import { DataSource } from '../sim/simdata.js';
 import { createRng, deriveSeed } from '../sim/rng.js';
 import { GameData } from './gamedata.js';
 import { RealScheduler } from './scheduler.js';
-import { SharedPool, drawDisabledBonds } from './pool.js';
+import { createPoolGroups, drawDisabledBonds } from './pool.js';
 import { PlayerState } from './PlayerState.js';
 import { buildDeployMap, boardOrder, pieceDir } from './board.js';
 import { bondList, offBondCounts } from './bondsMeta.js';
 import { EffectDispatcher, getDefaultRegistry } from './effectsMeta.js';
 import { generateDraft, applyCard, cardView, bountyBattles, isMultiRoundBounty } from './choices.js';
 import { setupMatchWaves, buildNormalWave, buildBossWave, bountySpawns, withBounties, previewOf, weightedPick } from './waves.js';
-import { planUnite, uniteBattleOpts, uniteSurvivors } from './unite.js';
+import { planUnite, uniteBattleOpts, uniteSurvivors, plannedUniteSurvivors, nextUnitePlan } from './unite.js';
 import { pairPlayers, bossPoolHp, SharedBossPool, hiddenEligible, BOSS_HIT_STEPS } from './finalAssault.js';
 import {
   FieldRunner, DeadBattle, GAME_SPEED, snapFrame, runHeadless, timelineAt, HeadlessPacer, syntheticResult,
@@ -332,7 +332,10 @@ export class Match {
     this.disabledBonds = bans.drawn;
     this.staticInactiveBonds = bans.staticOff;
     this.bannedChess = bans.banned;
-    this.pool = new SharedPool(this.gd, { banned: bans.banned });
+    this.poolGroups = createPoolGroups(this.gd, this.order, { banned: bans.banned });
+    this.playerPools = new Map(this.poolGroups.flatMap((g) => g.playerIds.map((id) => [id, g.pool])));
+    // Compatibility for diagnostics written for one pool. Player transactions must always use poolFor / ps.pool.
+    this.pool = this.poolGroups[0].pool;
 
     this.phase = PHASE.LOBBY;
     this.round = 0;
@@ -413,7 +416,7 @@ export class Match {
     if (this.disposed || this.ended) {
       // a battle report that crossed the match end (the last b.progress of a field) is stale: ignored, never an error
       // (DESIGN §14 — an error frame without a rid would surface as a toast in the browser)
-      return this.clientCombat && msg && (msg.t === 'b.progress' || msg.t === 'b.result') ? OK : fail(ERR.WRONG_PHASE);
+      return this.clientCombat && msg && (msg.t === 'b.progress' || msg.t === 'b.result' || msg.t === 'b.yield') ? OK : fail(ERR.WRONG_PHASE);
     }
     if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string' || !GAME_TYPES.has(msg.t)) return fail(ERR.BAD_MSG);
     let res;
@@ -564,6 +567,7 @@ export class Match {
       if (turn) this.startDraftTurn();
     }
     const passedRound = phase === PHASE.SETTLE ? this.round + 1 : Math.max(1, this.round);
+    const leavingBossLayers = phase === PHASE.FINAL_ASSAULT ? ps.activatedLayers() : 0;
     // its own normal battle has nobody left to fight for
     for (const f of this.fields) {
       if (f.live && f.kind === 'normal' && f.players.length === 1 && f.players[0] === ps.playerId) {
@@ -577,6 +581,12 @@ export class Match {
     }
     ps.lp = 0;
     ps.eliminate(passedRound);
+    if (phase === PHASE.FINAL_ASSAULT) this.hiddenLayerSum = Math.max(0, this.hiddenLayerSum - leavingBossLayers);
+    if (this.bossPool && (phase === PHASE.FINAL_ASSAULT || phase === PHASE.HIDDEN_CORE) && this.alivePlayers().length) {
+      const bossId = phase === PHASE.HIDDEN_CORE ? this.hiddenBossId : this.bossId;
+      this.bossPool.rescale(bossPoolHp(this.gd, bossId, this.alivePlayers().length));
+      this._broadcastPool(true);
+    }
     this.tickerText(`${ps.name}博士中途退出了模拟`, FLOW_TICKER_PRIORITY);
     if (this.bossWaves && (phase === PHASE.ROUND_START || phase === PHASE.SP_DRAFT || phase === PHASE.PREP)) {
       // before the boss fight: pair the players left again (the prep preview shows the new partner / template); a
@@ -670,6 +680,8 @@ export class Match {
   nextUid() { return ++this.uidSeq; }
 
   alivePlayers() { return this.order.filter((p) => p.alive); }
+
+  poolFor(player) { return this.playerPools.get(typeof player === 'string' ? player : player?.playerId) || this.pool; }
 
   /** Whether any chess of a bond is in this match's pool (a 驰援 card of a fully banned bond is never offered). */
   bondInPool(bondId) {
@@ -871,6 +883,8 @@ export class Match {
       bossRound: this.gd.bossRound,
       hiddenRound: this.gd.hiddenRound,
       spRound: this.gd.spRounds().includes(this.round),
+      playerCount: this.order.length,
+      poolGroups: this.poolGroups.map(({ id, playerIds, scale }) => ({ id, playerIds: playerIds.slice(), scale })),
       // DESIGN §14: 'client' = battles are simulated by the browsers (b.start specs), 'server' = legacy streaming
       combatMode: this.clientCombat ? 'client' : 'server',
       // solo pause (g.pause, DESIGN §14): the battle, its field clock and every deadline are frozen while true
@@ -926,7 +940,10 @@ export class Match {
         turn: this.spTurn(), picks: { ...s.picks }, taken: { ...s.taken }, untimed: !!s.untimed,
       };
     }
-    if (this.phase === PHASE.UNITE && this.unitePlan) v.unite = { helpers: this.unitePlan.helpers.map((p) => p.playerId), leakers: this.unitePlan.leakers.map((p) => p.playerId) };
+    if (this.phase === PHASE.UNITE && this.unitePlan) v.unite = {
+      helpers: this.unitePlan.helpers.map((p) => p.playerId), leakers: this.unitePlan.leakers.map((p) => p.playerId),
+      round: this.unitePlan.round, roundsMax: this.unitePlan.roundsMax,
+    };
     return v;
   }
 
@@ -1099,6 +1116,7 @@ export class Match {
       case 'g.leave': this.onLeave(ps.playerId); return OK;
       case 'b.progress': return this._onProgress(ps, msg);
       case 'b.result': return this._onResult(ps, msg);
+      case 'b.yield': return this._onYield(ps, msg);
       default: return fail(ERR.BAD_MSG);
     }
   }
@@ -1542,8 +1560,8 @@ export class Match {
   // SP_DRAFT (机变)
 
   enterSpDraft() {
-    const draft = generateDraft(this.gd, this.rngDraft, this.round, { stageId: this.stageId, bondAvailable: (bondId) => this.bondLive(bondId) });
     const alive = this.alivePlayers();
+    const draft = generateDraft(this.gd, this.rngDraft, this.round, { stageId: this.stageId, bondAvailable: (bondId) => this.bondLive(bondId), playerCount: alive.length });
     if (!draft || !alive.length) { this.enterPrep(); return; }
     this.phase = PHASE.SP_DRAFT;
     const order = alive.map((p) => p.playerId);
@@ -1685,7 +1703,8 @@ export class Match {
    * pool filtered by `tier` / `minTier` / `maxTier` (number or 'shopLevel') / `bond`; `golden: true` yields the elite id.
    * @returns {{ kind: 'item'|'chess', id: string, golden?: boolean } | null}
    */
-  rollPool(poolId, { shopLevel = 6 } = {}) {
+  rollPool(poolId, { shopLevel = 6, player = null } = {}) {
+    const pool = this.poolFor(player);
     const pools = this.gd.choices.pools && typeof this.gd.choices.pools === 'object' ? this.gd.choices.pools : {};
     const p = typeof poolId === 'string' && Object.hasOwn(pools, poolId) ? pools[poolId] : null;
     if (!p || typeof p !== 'object') return null;
@@ -1699,7 +1718,7 @@ export class Match {
     const free = (id) => {
       if (typeof id !== 'string' || !this.gd.chess(id)) return false;
       const base = this.gd.baseIdOf(id);
-      return !this.pool.has(base) || this.pool.left(base) > 0;
+      return !pool.has(base) || pool.left(base) > 0;
     };
     let id = null;
     if (Array.isArray(p.weighted) && p.weighted.length) {
@@ -1712,7 +1731,7 @@ export class Match {
       const maxTier = p.maxTier === 'shopLevel' ? lvl : Number.isInteger(p.maxTier) ? p.maxTier : 6;
       const minTier = Number.isInteger(p.minTier) ? p.minTier : 1;
       const bond = typeof p.bond === 'string' ? p.bond : null;
-      id = this.pool.roll(rng, {
+      id = pool.roll(rng, {
         tier: Number.isInteger(p.tier) ? p.tier : null,
         maxTier,
         filter: (cid, e) => e.tier >= minTier && (!bond || (Array.isArray(this.gd.chess(cid)?.bonds) && this.gd.chess(cid).bonds.includes(bond))),
@@ -2015,7 +2034,7 @@ export class Match {
         this.fields[0].live = false;
         this.deadline = 0;
         this.markPublic();
-        this.later(this.scaled(DELAYS.COMBAT_END), () => this.settle(plan, res));
+        this.later(this.scaled(DELAYS.COMBAT_END), () => this._afterUniteWave(plan, res));
       },
     });
     this.runner.start();
@@ -2025,7 +2044,7 @@ export class Match {
   _uniteOpts(plan, limit) {
     const { wave, players } = uniteBattleOpts(this, plan, limit);
     return {
-      seed: deriveSeed(this.seed, `u:${this.round}`),
+      seed: deriveSeed(this.seed, `u:${this.round}:${plan.round || 1}`),
       kind: 'unite',
       modeId: this.modeId,
       round: this.round,
@@ -2176,10 +2195,7 @@ export class Match {
     let res = null;
     if (f && f.cc) res = f.done ? f.result : null;
     else if (f && f.battle && f.battle.finished) { try { res = f.battle.result(); } catch { res = null; } }
-    if (res && res.synthetic) {
-      const own = this.lastResults.get(pid);
-      return own && Array.isArray(own.leaked) ? own.leaked.filter((l) => l && l.counted !== false).length : 0;
-    }
+    if (res && res.synthetic) return plannedUniteSurvivors(plan).get(pid) || 0;
     if (res) return uniteSurvivors(plan, res).get(pid) || 0;
     const sent = plan.leaked.filter((l) => l.sourcePlayerId === pid).length;
     let live = null;
@@ -2456,7 +2472,15 @@ export class Match {
     this.deadline = 0;
     this.markPublic();
     const plan = this.unitePlan;
-    this.later(this.scaled(DELAYS.COMBAT_END), () => this.settle(plan, res));
+    this.later(this.scaled(DELAYS.COMBAT_END), () => this._afterUniteWave(plan, res));
+  }
+
+  /** Run the unused second pair only while enemies remain; then settle both waves together. */
+  _afterUniteWave(plan, result) {
+    if (this.phase !== PHASE.UNITE || this.unitePlan !== plan) return;
+    const next = nextUnitePlan(plan, result, this.alivePlayers().length);
+    if (next) this.startUnite(next);
+    else this.settle(plan, result);
   }
 
   // ---- reports
@@ -2490,6 +2514,21 @@ export class Match {
     // 联防: the leakers' enemies still standing (the latest report; clamped where it is read, _uniteLeft)
     if (f.kind === 'unite' && msg.left && typeof msg.left === 'object') p.left = { ...msg.left };
     this.markPublic();
+    return OK;
+  }
+
+  /** A result that cannot fit the wire frame is explicitly handed to the server without dropping any survivors. */
+  _onYield(ps, msg) {
+    if (!this.clientCombat) return fail(ERR.WRONG_PHASE, 'server-run combat');
+    const f = this._fieldByBattle(msg.battleId);
+    if (!f || f.done || f.heldResult || f.mode !== 'client' || f.authority !== ps.playerId) return OK;
+    if (f.kind === 'boss' || f.kind === 'hidden') {
+      if (this._finalEnding) {
+        f.result = syntheticResult(f.players, { bossBy: f.bossBy, time: this._fieldElapsed(f) });
+        this._fieldDone(f);
+        this._checkFinalEnd();
+      } else this._bossHandover(f, 'oversized-result', { demote: true });
+    } else this._runOnServer(f, 'oversized-result');
     return OK;
   }
 
@@ -2877,13 +2916,13 @@ export class Match {
     for (const ps of this.order) if (ps.pendingLayerGains) { ps.pendingLayerGains = null; ps.dirty(); }
     const cap = this.gd.lpCapPerRound;
     // a 联防 battle that could not run at all (synthetic result) must not wipe the leakers' losses: charge their own leaks
-    const uniteRan = !!(plan && uniteResult && !uniteResult.synthetic);
-    const survivors = uniteRan ? uniteSurvivors(plan, uniteResult) : null;
+    const survivors = plan ? (uniteResult && !uniteResult.synthetic ? uniteSurvivors(plan, uniteResult) : plannedUniteSurvivors(plan)) : null;
+    const uniteResults = plan ? [...plan.history, uniteResult].filter((r) => r && !r.synthetic) : [];
     const alive = this.alivePlayers();
     for (const ps of alive) {
       const r = this.lastResults.get(ps.playerId) || { leaked: [], perfect: true, coins: 0, layerGains: {}, killed: 0, damageDealt: 0 };
       const counted = (r.leaked || []).filter((l) => l && l.counted !== false).length;
-      const loss = uniteRan && plan.leakers.includes(ps) ? Math.min(cap, survivors.get(ps.playerId) || 0) : Math.min(cap, counted);
+      const loss = plan && plan.leakers.includes(ps) ? Math.min(cap, survivors.get(ps.playerId) || 0) : Math.min(cap, counted);
       ps.lp -= loss;
       ps.stats.lpLost += loss;
       ps.stats.leaks += counted;
@@ -2893,8 +2932,7 @@ export class Match {
       if (r.perfect !== false && counted === 0) ps.stats.perfectRounds++;
       // bounty coins (own battle + unite kills) are credited to the next prep
       let coins = Math.max(0, Math.trunc(Number(r.coins) || 0));
-      const up = uniteResult && uniteResult.perPlayer && uniteResult.perPlayer[ps.playerId];
-      if (up) {
+      for (const up of uniteResults.map((result) => result.perPlayer && result.perPlayer[ps.playerId]).filter(Boolean)) {
         coins += Math.max(0, Math.trunc(Number(up.coins) || 0));
         ps.stats.dmgDealt += Number(up.damageDealt) || 0;
         ps.stats.kills += Number(up.killed) || 0;
@@ -2915,7 +2953,8 @@ export class Match {
         this.dispatch(ps, 'onLayers', { bondId, from: before, to: ps.layers[bondId], reason: 'battle' });
       }
       this._charDamageTickers(ps, r);
-      this.dispatch(ps, 'onBattleResult', { result: r, lpLoss: loss, perfect: counted === 0 && r.perfect !== false, unite: uniteResult || null });
+      this.dispatch(ps, 'onBattleResult', { result: r, lpLoss: loss, perfect: counted === 0 && r.perfect !== false,
+        unite: uniteResult || null, uniteResults });
       ps.recompute();
     }
     for (const ps of alive) {
@@ -3185,7 +3224,7 @@ export class Match {
     this.markPublic();
     this.runner = null;
     if (!hidden) {
-      const eligible = victory && !!this.hiddenBossId && hiddenEligible(this.gd, { layerSum: this.hiddenLayerSum, teamLp: this.teamLp });
+      const eligible = victory && !!this.hiddenBossId && hiddenEligible(this.gd, { layerSum: this.hiddenLayerSum, teamLp: this.teamLp, playerCount: this.alivePlayers().length });
       this.later(this.scaled(DELAYS.SETTLE), () => {
         if (eligible) {
           this.hiddenReached = true;

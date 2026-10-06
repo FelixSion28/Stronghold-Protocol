@@ -14,6 +14,20 @@
 // ("copy-weighted"; duplicates within a roll allowed). The item slot picks a tier with the same tier shares, then a
 // uniform shop-eligible item of that tier (falling back to lower tiers).
 
+import { poolGroupSizes, poolCopyScale } from '../../shared/playerCapacity.js';
+
+/** Groups are assigned by occupied seat order at match start and never reshuffled after eliminations. */
+export function createPoolGroups(gd, players, opts = {}) {
+  const sorted = players.slice().sort((a, b) => a.seat - b.seat);
+  let offset = 0;
+  return poolGroupSizes(sorted.length).map((size, i) => {
+    const playerIds = sorted.slice(offset, offset + size).map((p) => p.playerId);
+    offset += size;
+    const scale = poolCopyScale(size);
+    return { id: i + 1, playerIds, scale, pool: new SharedPool(gd, { ...opts, scale }) };
+  });
+}
+
 /**
  * Per-match disabled bond set D and banned chess (research 01 A2): D = uniform sample of `core` core bonds and `addon`
  * add-on bonds among weight > 0 bonds that are active in the mode. A visible chess is banned iff every one of its
@@ -51,16 +65,17 @@ function sample(arr, n, rng) {
 export class SharedPool {
   /**
    * @param {import('./gamedata.js').GameData} gd
-   * @param {{ banned?: Iterable<string> }} [opts]
+   * @param {{ banned?: Iterable<string>, scale?: number }} [opts]
    */
-  constructor(gd, { banned = [] } = {}) {
+  constructor(gd, { banned = [], scale = 1 } = {}) {
     this.gd = gd;
+    this.scale = Number.isFinite(scale) && scale > 0 ? scale : 1;
     const ban = new Set(banned);
     /** @type {Map<string, { cap: number, left: number, tier: number }>} */
     this.entries = new Map();
     for (const id of gd.visibleChess) {
       if (ban.has(id)) continue;
-      const cap = gd.poolCopies(id);
+      const cap = Math.ceil(gd.poolCopies(id) * this.scale);
       if (cap <= 0) continue;
       this.entries.set(id, { cap, left: cap, tier: gd.tierOf(id) });
     }

@@ -28,14 +28,14 @@ test('no custom balance: legacy tuning multipliers are ignored; enemy scale = th
     assert.deepEqual(hard.enemyScale(r), { hpMul: e.hp, atkMul: e.atk, speedMul: e.speed }, `R${r}: the config (PRTS) table`);
   }
   assert.equal(hard.bossHpMul('boss_1'), 1);
-  // co-op: one pool = bloodPoint[difficulty] whatever the alive count (× alive / 4 only with config aliveScaling, off —
-  // DESIGN §20.10); solo: ×0.25 [ASSUMED, flagged]
+  // co-op: one pool = bloodPoint[difficulty] × living players / 4; solo: ×0.25.
   for (const [modeId, key] of [['mode_multi_funny', 'FUNNY'], ['mode_multi_normal', 'NORMAL'], ['mode_multi_hard', 'HARD'], ['mode_multi_abyss', 'ABYSS']]) {
     const gd = new GameData(RAW, modeId);
     for (const b of ['boss_1', 'boss_5', 'boss_8']) {
       assert.equal(gd.bossPoolHp(b), DATA.bosses[b].bloodPoint[key], `${modeId} ${b}`);
       assert.equal(gd.bossPoolHp(b, 4), DATA.bosses[b].bloodPoint[key], `${modeId} ${b} four alive`);
-      assert.equal(gd.bossPoolHp(b, 2), DATA.bosses[b].bloodPoint[key], `${modeId} ${b} two alive: still the data value`);
+      assert.equal(gd.bossPoolHp(b, 2), Math.round(DATA.bosses[b].bloodPoint[key] * 0.5), `${modeId} ${b} two alive`);
+      assert.equal(gd.bossPoolHp(b, 8), DATA.bosses[b].bloodPoint[key] * 2, `${modeId} ${b} eight alive`);
     }
   }
   assert.equal(DATA.config.bossHpScale.aliveScaling, false);
