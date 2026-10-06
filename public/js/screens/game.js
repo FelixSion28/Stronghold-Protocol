@@ -664,7 +664,8 @@ function MatchScreen() {
 
   // emote bubbles (and a sound for teammates' emotes)
   const bubbleMs = (gd.config?.timers?.chatBubble ?? 3) * 1000;
-  const bubbles = activeBubbles(emotes, Date.now(), bubbleMs);
+  const emoteNow = Date.now();
+  const bubbles = activeBubbles(emotes, emoteNow, bubbleMs);
   useTicker(bubbles.size ? 500 : 0); // re-render only while a bubble is showing (to expire it)
   const lastEmote = useRef(emotes.length ? emotes[emotes.length - 1].seq : 0);
   useEffect(() => {
@@ -1306,7 +1307,8 @@ function MatchScreen() {
         </div>
       </div>
 
-      <${TeamPanel} pub=${pub} myId=${myId} watching=${watchingNow} bubbles=${bubbles} onWatch=${watchPlayer} cap=${gd.config?.lpCapPerRound ?? 10} uniteLocal=${uniteLocal}
+      <${TeamPanel} pub=${pub} myId=${myId} watching=${watchingNow} bubbles=${bubbles} emotes=${emotes} emoteNow=${emoteNow} emoteTtl=${bubbleMs}
+        onWatch=${watchPlayer} cap=${gd.config?.lpCapPerRound ?? 10} uniteLocal=${uniteLocal}
         self=${Number.isFinite(priv?.lp) ? { lp: priv.lp, pending: liveLpNow.pending, unite: liveLpNow.unite, left: liveLpNow.left } : null}
         observe=${cc ? { canObserve: (p) => observeTarget(p, pub, myId, { observing: watchingOther, ownDone: localDone }), observing: watchingOther, onBack: backHome } : null} />
 
@@ -1383,4 +1385,3 @@ function MatchScreen() {
     <${ExitModal} open=${exitOpen} onClose=${() => setExitOpen(false)} solo=${solo} />
   </div>`;
 }
-

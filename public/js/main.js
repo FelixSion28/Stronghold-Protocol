@@ -46,11 +46,12 @@ import { installDeviceSupport } from './ui/device.js';
 import { LoadoutHost } from './screens/loadout.js';
 import { installLoadoutSync } from './ui/loadoutSync.js';
 import { startBuildGuard } from './ui/buildGuard.js';
+import { MAX_SEATS } from '../../shared/constants.js';
 
 const RESTORE_GRACE_MS = 1500;
 const JOIN_DELAY_MS = 350;
 const TICKER_KEEP = 20;
-const EMOTE_KEEP = 20;
+const EMOTE_KEEP = MAX_SEATS * 4; // keep several seconds of messages even when every seat sends together
 
 const SCREENS = { title: TitleScreen, lobby: LobbyScreen, room: RoomScreen, game: GameScreen };
 

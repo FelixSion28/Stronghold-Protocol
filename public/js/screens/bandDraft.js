@@ -172,6 +172,7 @@ export function BandDraftScreen() {
   const [exit, setExit] = useState(false);
   const [skipped, setSkipped] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  const orderRef = useRef(null);
 
   const mode = gd.config?.modes?.[pub?.modeId];
   const offBonds = modeOffBonds(mode); // the bonds this mode never activates (标准: 10 of 23)
@@ -205,6 +206,7 @@ export function BandDraftScreen() {
   // AI pick) or my pick closes it, so whoever's turn begins sees the draft
   const turnKey = `${draft.turnPid || ''}|${myPick || ''}`;
   useEffect(() => { setInfoOpen(false); }, [turnKey]);
+  useEffect(() => { orderRef.current?.querySelector('.dorder.is-cur')?.scrollIntoView({ block: 'nearest' }); }, [draft.turnPid]);
 
   // one countdown (user playtest #4 item 4): the current turn's — m.public.deadline, the same clock as the picker's row
   const clock = solo ? null : draftClock(pub);
@@ -253,6 +255,7 @@ export function BandDraftScreen() {
     <main class="draft__main">
       <aside class="draft-order">
         <h3 class="brief-h"><span>${solo ? '独立模拟' : '决策顺序'}</span><${MicroLabel}>${solo ? 'FREE PICK' : 'RANDOM ORDER'}</${MicroLabel}></h3>
+        <div class="draft-order__list" ref=${orderRef}>
         ${(solo ? players.filter((p) => p.playerId === myId) : draft.order.map((pid) => players.find((p) => p.playerId === pid)).filter(Boolean)).map((p, i) => {
           const picked = draft.picks.get(p.playerId) || (p.playerId === myId ? myPick : p.bandId) || null;
           const cur = !picked && (solo || draft.turnPid === p.playerId);
@@ -273,6 +276,7 @@ export function BandDraftScreen() {
             </span>
           </div>`;
         })}
+        </div>
         <${Button} variant="secondary" icon="search" block=${true} class="draft-order__info" data-testid="match-info-open"
           aria-haspopup="dialog" onClick=${() => setInfoOpen(true)}>查看禁用盟约与干员<//>
         ${!solo ? html`<p class="draft-order__tip" data-testid="draft-tip">${draftTip({ timed, turnSeconds: turnLen, autoName: myPick ? null : autoName, selected: autoId === sel })}</p>` : null}

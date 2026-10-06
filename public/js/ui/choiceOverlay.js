@@ -189,7 +189,7 @@ export function ChoiceView({ pub, sp, myId, solo, busyIdx = null, total = null, 
           ${timed ? html`<${Countdown} deadline=${pub?.deadline} total=${total ?? undefined} size="sm" />` : null}
         </div>
       </header>
-      ${order.length ? html`<div class="spov__order" aria-label="决策顺序">
+      ${order.length ? html`<div class=${cx('spov__order', order.length > 8 && 'spov__order--many')} aria-label="决策顺序">
         ${order.map((pid, i) => {
           const p = players.get(pid);
           const picked = sp.pickOf.has(pid);
@@ -203,7 +203,8 @@ export function ChoiceView({ pub, sp, myId, solo, busyIdx = null, total = null, 
           </div>`;
         })}
       </div>` : null}
-      <div class=${cx('spov__grid', sp.cards.length <= 3 && 'spov__grid--3')}>
+      <div class=${cx('spov__grid', sp.cards.length <= 3 && 'spov__grid--3', sp.cards.length > 6 && 'spov__grid--expanded')}
+        style=${sp.cards.length > 6 ? `--sp-cols:${Math.min(6, Math.ceil(sp.cards.length / 2))}` : undefined}>
         ${sp.cards.map((card) => {
           const r = resolveSpCard(card, sp.family);
           const taker = card.takenBy ? players.get(card.takenBy) : null;

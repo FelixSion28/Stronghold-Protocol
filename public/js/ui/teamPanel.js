@@ -14,7 +14,7 @@
 // the player watches, so the number moves with the kills on screen), else m.public players[].uniteLeft (the authority's
 // report, ~1 Hz).
 
-import { useEffect, useState } from '../../vendor/hooks.module.js';
+import { useEffect, useRef, useState } from '../../vendor/hooks.module.js';
 import { PHASE } from '../../../shared/constants.js';
 import { html, Icon, Tooltip } from './components.js';
 import { PlayerAvatar, LpTower, GIcon, LocalSprite } from './gameComponents.js';
@@ -65,17 +65,28 @@ export function rowLpTip(lp, cap = 10) {
 }
 
 /**
- * @param {{ pub:any, myId:string, watching:string|null, bubbles: Map<string,{id:string,seq:number}>, onWatch:(p:any)=>void,
+ * @param {{ pub:any, myId:string, watching:string|null, bubbles: Map<string,{id:string,seq:number}>,
+ *   emotes?: Array<{seq:number,playerId:string,id:string,at:number}>, emoteNow?:number, emoteTtl?:number, onWatch:(p:any)=>void,
  *   compact?: boolean, teamLp?: number|null, self?: { lp?: number|null, pending: number, unite: boolean, left?: number|null } | null,
  *   cap?: number, uniteLocal?: Record<string, number> | null,
  *   observe?: null | { canObserve: (p:any) => { fieldId?: string, reason?: string|null, back?: boolean }, observing: boolean, onBack: () => void } }} props
  *   uniteLocal: the local 联防 replica's per-leaker counts while it is on screen (battle runner state().uniteLeft), else null
  */
-export function TeamPanel({ pub, myId, watching, bubbles, onWatch, compact = false, observe = null, self: selfLive = null, cap = 10, uniteLocal = null }) {
+export function TeamPanel({ pub, myId, watching, bubbles, emotes = [], emoteNow = Date.now(), emoteTtl = 3000,
+  onWatch, compact = false, observe = null, self: selfLive = null, cap = 10, uniteLocal = null }) {
   const [openPid, setOpenPid] = useState(null);
+  const feedRef = useRef(null);
   const phaseKey = `${pub?.phase}:${pub?.round}`;
   useEffect(() => { setOpenPid(null); }, [phaseKey, watching, observe?.observing]);
   const players = sortedPlayers(pub);
+  const many = players.length > 6;
+  const playersById = new Map(players.map((p) => [p.playerId, p]));
+  const activeEmotes = many && Array.isArray(emotes) ? emotes.filter((e) => e && playersById.has(e.playerId)
+    && emoteNow - e.at < emoteTtl && e.at <= emoteNow + 1000) : [];
+  const newestEmote = activeEmotes.at(-1)?.seq || 0;
+  useEffect(() => {
+    if (feedRef.current && newestEmote) feedRef.current.scrollTop = feedRef.current.scrollHeight;
+  }, [newestEmote]);
   if (!players.length) return null;
   const click = (p, self) => {
     if (!observe) { onWatch(p); return; }
@@ -84,7 +95,8 @@ export function TeamPanel({ pub, myId, watching, bubbles, onWatch, compact = fal
     if (!t.fieldId) { setOpenPid(null); onWatch(p); return; } // the game screen toasts the reason
     setOpenPid((cur) => (cur === p.playerId ? null : p.playerId));
   };
-  return html`<aside class=${cx('team', compact && 'team--compact')} aria-label="同盟成员">
+  return html`<aside class=${cx('team', compact && 'team--compact', many && 'team--many')} aria-label="同盟成员">
+    <div class="team__list">
     ${players.map((p) => {
       const self = p.playerId === myId;
       const status = p.alive === false ? 'dead' : p.status;
@@ -126,5 +138,16 @@ export function TeamPanel({ pub, myId, watching, bubbles, onWatch, compact = fal
         ${bubble ? html`<${EmoteBubble} key=${bubble.seq} id=${bubble.id} class="team__bubble" />` : null}
       </div>`;
     })}
+    </div>
+    ${many && activeEmotes.length ? html`<div class="team__emote-feed" role="log" aria-live="polite" aria-label="同盟表情" ref=${feedRef}>
+      ${activeEmotes.map((e) => {
+        const p = playersById.get(e.playerId);
+        return html`<div key=${e.seq} class="team__feed-row" aria-label=${`${p.name || '博士'}发送表情`}>
+          <${PlayerAvatar} player=${p} size="sm" />
+          <span class="team__feed-name">${p.name || '博士'}</span>
+          <span class="team__feed-bubble"><${EmoteBubble} key=${e.seq} id=${e.id} at=${e.at} /></span>
+        </div>`;
+      })}
+    </div>` : null}
   </aside>`;
 }
