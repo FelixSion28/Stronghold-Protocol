@@ -1530,11 +1530,13 @@ export class Battle {
    * `sourceless: true` makes the loss itself 无来源 ("受到等量的无来源生命流失": hooks see no source; `source` keeps the
    * credit — the stats and the per-player shared-pool tally).
    * On a leader in a boss / hidden battle a loss of ≥ BOSS_HIT_LIMIT is cancelled like a hit (damage.js leaderHitCancelled).
+   * `bypassHitLimit` is reserved for scripted boss mechanics that remove a percentage of the expanded shared pool
+   * (死亡集群 drone link); ordinary damage and parts' transferred damage still use the official hit limit.
    */
-  loseHp(target, amount, { source = null, silent = false, tags = null, from = null, sourceless = false } = {}) {
+  loseHp(target, amount, { source = null, silent = false, tags = null, from = null, sourceless = false, bypassHitLimit = false } = {}) {
     if (!target || !target.alive || !(amount > 0)) return 0;
-    // 限伤 (shared/constants.js BOSS_HIT_LIMIT): a loss passed on to a leader (parts' 传递, 无人机) is one hit too
-    if (leaderHitCancelled(this, target, amount)) return 0;
+    // 限伤: damage transferred to a leader is still one hit; the drone's pool-percentage mechanic is exempt.
+    if (!bypassHitLimit && leaderHitCancelled(this, target, amount)) return 0;
     const t = ['hpLoss'];
     for (const list of [from && from.tags, tags]) if (Array.isArray(list)) for (const x of list) if (!t.includes(x)) t.push(x);
     return applyHpLoss(this, source, target, amount, { type: 'true', tags: t, noSp: true, silent, origin: from ?? null, sourceless: !!sourceless || !!(from && from.sourceless) });

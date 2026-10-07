@@ -170,7 +170,8 @@ export function mitigate(amount, type, target, ign = {}) {
  * number. A 'hitCap' fx event `{ id, n: ceil(amount) }` marks it for the client, which draws nothing — the official
  * shows no number [ASSUMED]. Every HP-damage kind is checked as the official `modifier.isDamage` (phys, arts, true,
  * 元素伤害 incl. element bursts, DoT ticks — they all come through dealDamage — and losses passed on to a leader through
- * Battle.loseHp); element 损伤 (gauge fill, 'element') removes no HP and is never checked. Deterministic (Math.ceil of
+ * Battle.loseHp, except the scripted 死亡集群 pool-percentage loss); element 损伤 (gauge fill, 'element') removes no HP
+ * and is never checked. Deterministic (Math.ceil of
  * the same double on every engine).
  */
 export function leaderHitCancelled(battle, target, amount) {

@@ -704,7 +704,9 @@ partner's too: PRTS 备注 "全场范围内的所有敌人类我方单位也会�
 second however many carriers (PRTS 作战机制 "同名buff的默认叠加策略buff只能表现出一个"), while a carrier is on the field
 [ASSUMED]. 奥术法阵 has the same 备注 for its rider: while a carrier is on the field, every damage instance of such a unit
 silences its target for the item's 5 s ("造成伤害时使目标失去特殊能力5秒"; since 0.1.1). On a leader
-in a boss / hidden battle a loss of ≥ `BOSS_HIT_LIMIT` (a part's 传递, a drone's death) is cancelled like a hit. Every HP-damage kind
+in a boss / hidden battle a loss of ≥ `BOSS_HIT_LIMIT` (a part's 传递) is cancelled like a hit. The capacity fork exempts
+the scripted 死亡集群 drone link (`loseHp` option `bypassHitLimit`): its 2 % pool loss still lands on an expanded pool
+and credits the killing operator; see [PLAYER_CAPACITY.md](PLAYER_CAPACITY.md). Every ordinary HP-damage kind
 meets the limit (phys / arts / true / 元素伤害 incl. element bursts, DoT ticks); element 损伤 (the gauge, `type: 'element'`)
 removes no HP and never does.
 

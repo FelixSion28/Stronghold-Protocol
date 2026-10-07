@@ -110,8 +110,8 @@ const BLADE_HAND = Object.freeze({ enemy_9014_acstma: 'left_hand', enemy_9015_ac
  *   'unit': the in-battle unit's data max HP (600 000 / hidden 1 200 000, 不死) — 12 000 / 24 000 per drone at every
  *          difficulty: 0.33 % of the 终极 bar but 19 % of the solo 标准 bar (61 875), so drones decide solo fights.
  * Round 2 of the boss-HP review tried 'unit'; the review measured the solo regression, so the default is back to 'pool'.
- * 限伤 (shared/constants.js BOSS_HIT_LIMIT): the loss is one hit through Battle.loseHp — it lands up to the largest pool
- * today (boss_8 终极 7 200 000 → 144 000) and would be cancelled above a 14 999 950 pool (ceil(0.02 × pool) ≥ 300000).
+ * Capacity adaptation: this scripted percentage loss bypasses the ordinary boss hit limit. With 20 players the
+ * hidden pool reaches 36 000 000; cancelling its 720 000 link would disable the drone mechanic entirely.
  */
 export const DRONE_LINK_BASE = 'pool';
 /** 卢西恩 / 不祥幻影 AoE radius (PRTS "半径2"). */
@@ -403,7 +403,7 @@ function kitHelm(ab, e, b, tpl) {
             if (c.reason !== 'killed' || !(ratio > 0)) return;                 // a leak is no death
             const boss = e2.alive ? e2 : b3.aliveEnemies().find((o) => o.isBoss && o.defId === e2.defId);
             const by = c.killer && c.killer.side === 'ally' ? c.killer : null;  // credited to the killing operator
-            if (boss) { b3.loseHp(boss, droneLinkBase(boss) * ratio, { source: by }); b3.fx('beam', { x: d.x, y: d.y, from: d.id, to: boss.id, kind: 'droneLink' }); }
+            if (boss) { b3.loseHp(boss, droneLinkBase(boss) * ratio, { source: by, bypassHitLimit: true, tags: ['boss:droneLink'] }); b3.fx('beam', { x: d.x, y: d.y, from: d.id, to: boss.id, kind: 'droneLink' }); }
           },
         }]);
       },
