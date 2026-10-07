@@ -456,6 +456,7 @@ export class Match {
     this.guard(() => {
       ps.connected = false;
       this.refreshDraftPriority();
+      this.refreshUniteSkipVote();
       // a paused solo battle resumes (the server takes the field over; nobody is left to resume it)
       this._resume();
       if (this.clientCombat) this._authorityLost(ps, 'disconnect');
@@ -470,6 +471,7 @@ export class Match {
       const was = ps.connected;
       ps.connected = true;
       this.refreshDraftPriority();
+      this.refreshUniteSkipVote();
       this._resync(ps);
       if (!was) this.markPublic();
     });
@@ -538,6 +540,7 @@ export class Match {
       ps.left = true;
       ps.connected = false;
       ps.autoplay = false;
+      this.refreshUniteSkipVote();
       this.watchers.delete(playerId);
       if (this.ended) return;
       this._resume();
@@ -945,6 +948,7 @@ export class Match {
     if (this.phase === PHASE.UNITE && this.unitePlan) v.unite = {
       helpers: this.unitePlan.helpers.map((p) => p.playerId), leakers: this.unitePlan.leakers.map((p) => p.playerId),
       round: this.unitePlan.round, roundsMax: this.unitePlan.roundsMax,
+      skipVote: this.uniteSkipVoteView(),
     };
     return v;
   }
@@ -1113,6 +1117,7 @@ export class Match {
       case 'g.watch': return this.watch(ps, msg.fieldId);
       case 'g.autoplay': return this.setAutoplay(ps, !!msg.on);
       case 'g.pause': return this.setPause(ps, !!msg.on);
+      case 'g.uniteSkipVote': return this.voteSkipUnite(ps);
       // the stats the board's units start their next battle with (the detail card in prep, user playtest #4 item 7)
       case 'g.unitStats': return this.unitStats(ps, msg.seq ?? null);
       case 'g.leave': this.onLeave(ps.playerId); return OK;
@@ -1164,8 +1169,43 @@ export class Match {
     if (ps.autoplay === on) return OK;
     ps.autoplay = on;
     this.refreshDraftPriority();
+    this.refreshUniteSkipVote();
     this.markPublic();
     if (on) this.kickBot(ps);
+    return OK;
+  }
+
+  /** Online human seats, including eliminated players; AI, spectators and autoplay seats do not vote. */
+  uniteSkipVoters() { return this.humans().filter((ps) => ps.connected && !ps.autoplay); }
+
+  uniteSkipVoteView() {
+    const plan = this.unitePlan;
+    if (this.phase !== PHASE.UNITE || !plan || plan.round !== 1 || plan.roundsMax < 2) return null;
+    const eligible = this.uniteSkipVoters().map((ps) => ps.playerId);
+    return { eligible, voters: eligible.filter((pid) => plan.skipVotes.has(pid)),
+      needed: Math.floor(eligible.length / 2) + 1, passed: plan.skipSecond, open: !!this.fields[0]?.live };
+  }
+
+  /** Changes to online/autoplay membership invalidate those seats' votes. Approval remains latched for this round. */
+  refreshUniteSkipVote() {
+    const vote = this.uniteSkipVoteView();
+    if (!vote) return;
+    const plan = this.unitePlan;
+    plan.skipVotes = new Set(vote.voters);
+    if (!plan.skipSecond && vote.open && vote.eligible.length && vote.voters.length >= vote.needed) {
+      plan.skipSecond = true;
+      this.tickerText('投票通过：第一轮联防结束后跳过第二轮，按剩余漏怪结算', FLOW_TICKER_PRIORITY);
+    }
+    this.markPublic();
+  }
+
+  voteSkipUnite(ps) {
+    const vote = this.uniteSkipVoteView();
+    if (!vote || !vote.open) return fail(ERR.WRONG_PHASE);
+    if (!vote.eligible.includes(ps.playerId)) return fail(ERR.BAD_TARGET, '仅在线且未托管的人类玩家可投票');
+    if (vote.passed || this.unitePlan.skipVotes.has(ps.playerId)) return OK;
+    this.unitePlan.skipVotes.add(ps.playerId);
+    this.refreshUniteSkipVote();
     return OK;
   }
 

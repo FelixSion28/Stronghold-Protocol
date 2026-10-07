@@ -308,7 +308,7 @@ export function PauseButton({ paused, busy = false, onToggle }) {
  *     `left` (a leaker in 联防): its enemies still standing — the capsule's ×N tag
  */
 export function TopBar({ pub, priv, conn, hud, total, drawer, onExit, onDrawer, onReady, readyBusy, readyCount, playerCount, pen = false, penAvail = false, onPen = () => {},
-  config = null, frozenAt = null, pause = null, live = null, spectator = false }) {
+  config = null, frozenAt = null, pause = null, live = null, spectator = false, myId = null, onUniteSkipVote = () => {} }) {
   const phase = pub?.phase;
   const boss = isBossPhase(phase);
   const lp = boss && Number.isFinite(pub?.teamLp) ? pub.teamLp : Number.isFinite(priv?.lp) ? priv.lp : null;
@@ -365,9 +365,28 @@ export function TopBar({ pub, priv, conn, hud, total, drawer, onExit, onDrawer, 
         ${pause && (pause.show || pause.paused) ? html`<${PauseButton} paused=${!!pause.paused} busy=${pause.busy} onToggle=${pause.onToggle} />` : null}
       </div>
       <${OvertimeWarning} ot=${ot} />
+      <${UniteSkipVote} pub=${pub} myId=${myId} onVote=${onUniteSkipVote} />
       ${showReady ? html`<${ReadyToggle} priv=${priv} onToggle=${onReady} busy=${readyBusy} readyCount=${readyCount} total=${playerCount} />` : null}
     </div>
   </header>`;
+}
+
+/** Vote status remains visible to the team; only eligible human seats can cast a vote. */
+export function UniteSkipVote({ pub, myId, onVote }) {
+  const unite = pub?.unite;
+  const vote = unite?.skipVote;
+  if (pub?.phase !== PHASE.UNITE || unite?.round !== 1 || unite.roundsMax < 2 || !vote) return null;
+  const eligible = vote.eligible.includes(myId);
+  const voted = vote.voters.includes(myId);
+  return html`<div class="unite-vote" role="status">
+    <${Button} variant="secondary" size="sm" disabled=${!eligible || voted || vote.passed || !vote.open}
+      onClick=${onVote} data-testid="unite-skip-vote"
+      title="超过半数在线且未托管的人类玩家同意后，第一轮打完就跳过第二轮，剩余漏怪照常扣除目标生命值">
+      ${vote.passed ? '已通过：跳过第二轮' : voted ? '已投票跳过第二轮' : '投票跳过第二轮'}
+    <//>
+    <span class="unite-vote__count">${vote.passed ? '第一轮结束后直接结算'
+      : vote.eligible.length ? `${vote.voters.length}/${vote.eligible.length} 票 · 需 ${vote.needed} 票` : '暂无可投票玩家'}</span>
+  </div>`;
 }
 
 /** DP counter shown at the right edge during combat. */

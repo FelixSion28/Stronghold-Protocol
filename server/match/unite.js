@@ -75,7 +75,8 @@ export function planUnite(m, results) {
     }
   }
   return { helpers, reserveHelpers, leakers, leaked, notReentered, round: 1,
-    roundsMax: reserveHelpers.length ? uniteRoundLimit(alive.length) : 1, history: [], usedHelpers: [] };
+    roundsMax: reserveHelpers.length ? uniteRoundLimit(alive.length) : 1, history: [], usedHelpers: [],
+    skipVotes: new Set(), skipSecond: false };
 }
 
 /**
@@ -186,7 +187,7 @@ export function uniteRemainingLeaks(plan, result) {
 
 /** A second pair is used only when there are surviving enemies and unused perfect teammates. */
 export function nextUnitePlan(plan, result, livingPlayers = Infinity) {
-  if (!plan || plan.round >= plan.roundsMax || uniteRoundLimit(livingPlayers) <= plan.round || !result || result.synthetic) return null;
+  if (!plan || plan.skipSecond || plan.round >= plan.roundsMax || uniteRoundLimit(livingPlayers) <= plan.round || !result || result.synthetic) return null;
   const leaked = uniteRemainingLeaks(plan, result);
   const helpers = plan.reserveHelpers.filter((ps) => ps.alive && !ps.left).slice(0, plan.helpers.length);
   if (!leaked.length || !helpers.length) return null;
