@@ -16,10 +16,10 @@
 
 | 分支能力 | 优先核对的实现入口 | 保留的边界 |
 |---|---|---|
-| 房间与协议容量 | `server/lobby.js`、`shared/playerCapacity.js`、`shared/protocol.js`、房间 UI | 20 人座位、22 机变索引、空位不计人数 |
-| 卡池与信标 | `server/match/pool.js`、`PlayerState.js`、`effectsMeta.js` | 固定分组、三人完整原池、接收者组取副本 |
-| 机变与真人优先 | `server/match/choices.js`、`Match.js`、轮选 UI | 存活人数 + 2、强弱分布、未选真人优先 |
-| 联防与投票 | `server/match/unite.js`、`Match.js`、`public/js/ui/hud.js` | 最多两轮、投票资格、剩余漏怪归属与收益 |
+| 房间与协议容量 | `server/lobby.js`、`shared/playerCapacity.js`、`shared/protocol.js`、房间 UI | 20 人座位、每组轮选请求及阶段标识、空位不计人数 |
+| 卡池与信标 | `server/match/pool.js`、`PlayerState.js`、`effectsMeta.js` | D010 三/四/五人固定组、三人完整原池、五人 III 阶 22、接收者组取副本、自选私有库存 |
+| 机变与真人优先 | `server/match/choices.js`、`match/phases.js`、`match/spDraft.js`、轮选 UI | D012 每组独立六张、组间并行、类型全房一致；D004 组内未选真人优先，保留各组时钟与只读浏览 |
+| 联防与投票 | `server/match/unite.js`、`match/unitePhase.js`、`public/js/ui/hud.js` | D013 固定组数上限至多五轮、全房原选人排序、逐轮真人多数票；本轮打完后取消后续全部，保留漏怪归属与累计收益 |
 | 领袖及两端战斗 | `gamedata.js`、`finalAssault.js`、`server/sim/`、`public/js/battle/runner.js` | 按人数共享血池、无人机 2% 机制、普通限伤保留 |
 | 审计与界面 | `server/match/audit.js`、`tools/matchrun.mjs`、队伍栏与表情 UI | 扩容事件可以回放审计，图标和表情仍能显示 |
 
