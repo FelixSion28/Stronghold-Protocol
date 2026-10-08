@@ -10,7 +10,7 @@
 // plays 战场#01, 险境 draws one of 8, 绝境 / 终极 one of 7 (m01 excluded).
 
 import { useEffect, useRef, useState } from '../../vendor/hooks.module.js';
-import { DIFFICULTIES, DIFFICULTY_NAMES, DIFFICULTY_COLORS, ROOM_CODE_LEN, MAX_SEATS, MAX_SPECTATORS, modeIdFor } from '../../../shared/constants.js';
+import { DIFFICULTIES, DIFFICULTY_NAMES, DIFFICULTY_COLORS, ROOM_CODE_LEN, ROOM_TIMER_SCALE, MAX_SEATS, MAX_SPECTATORS, modeIdFor } from '../../../shared/constants.js';
 import { html, Button, Icon, MicroLabel, Panel, TextField, PingPill, AvatarFrame, Tooltip, Spinner, DifficultyIcon, doctorNo } from '../ui/components.js';
 import { toast, toastError } from '../ui/toasts.js';
 import { GuideButton } from '../ui/guide.js';
@@ -238,6 +238,7 @@ export function LobbyScreen() {
     return DIFFICULTIES.includes(d) ? d : 'FUNNY';
   });
   const [code, setCode] = useState('');
+  const [timerScale, setTimerScale] = useState(ROOM_TIMER_SCALE.default);
   const [busy, setBusy] = useState(null);
   const [recent] = useState(recentRooms);
   const alive = useRef(true);
@@ -260,7 +261,9 @@ export function LobbyScreen() {
       if (alive.current) setBusy(null);
     }
   };
-  const create = () => run('create', () => net.request('room.create', { mode: roomMode, difficulty }));
+  const create = () => run('create', () => net.request('room.create', {
+    mode: roomMode, difficulty, ...(roomMode === 'coop' ? { timerScale } : {}),
+  }));
   const join = (c = code) => {
     // `onClick=${join}` hands the click EVENT as the first argument, and a default parameter only applies to
     // `undefined` — codeArg keeps an event target out of the key and falls back to the input field
@@ -321,6 +324,24 @@ export function LobbyScreen() {
         <div class="mode-cards">
           ${MODE_CARDS.map((c) => html`<${ModeCard} key=${c.id} card=${c} selected=${roomMode === c.id} onSelect=${pickMode} />`)}
         </div>
+          ${roomMode === 'coop' ? html`<fieldset class="timer-scale" disabled=${!!busy}>
+            <legend>阶段时长倍率</legend>
+            <div class="timer-scale__row">
+              <label for="room-timer-scale">调整时长</label>
+              <input id="room-timer-scale" class="set-range" type="range"
+                min=${ROOM_TIMER_SCALE.min} max=${ROOM_TIMER_SCALE.max} step=${ROOM_TIMER_SCALE.step} value=${timerScale}
+                style=${`--pct:${((timerScale - ROOM_TIMER_SCALE.min) / (ROOM_TIMER_SCALE.max - ROOM_TIMER_SCALE.min)) * 100}%`}
+                aria-describedby="room-timer-scale-hint" aria-valuetext=${`${timerScale} 倍`}
+                onInput=${(e) => setTimerScale(Math.round(Number(e.currentTarget.value) * 10) / 10)} />
+              <output for="room-timer-scale" class="num">${timerScale}×</output>
+            </div>
+            <div class="timer-scale__presets" role="group" aria-label="时长倍率预选">
+              ${ROOM_TIMER_SCALE.presets.map((v) => html`<button key=${v} type="button"
+                class=${`timer-scale__preset num${timerScale === v ? ' is-on' : ''}`} aria-pressed=${timerScale === v ? 'true' : 'false'}
+                onClick=${() => setTimerScale(v)}>${v}×${v === 1 ? ' 默认' : ''}</button>`)}
+            </div>
+            <p id="room-timer-scale-hint">休整、选策略与机变等阶段按倍率延长；战斗保持 2 倍速，回合开始、战斗结束与结算过渡时长固定。仅一名真人时休整与选择不限时。</p>
+          </fieldset>` : null}
 
         <div class="section-label"><span class="section-label__idx num">03</span>加入同盟<${MicroLabel}>JOIN WITH ALLIANCE KEY<//></div>
         <${Panel} class="join-panel" tone="amber">

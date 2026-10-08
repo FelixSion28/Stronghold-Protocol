@@ -313,7 +313,7 @@ export function RoomScreen() {
             ${facts.humans.map((s) => html`<${Icon} key=${s.playerId} name="user" class=${facts.isReady(s) ? 'is-on' : ''} />`)}
           </span>
         </div>
-        <div class="room-bar__status">${statusLine}</div>
+        <div class="room-bar__status">${coop ? html`<span class="t-mint">阶段时长 ${room.timerScale ?? 1}×</span> · ` : null}${statusLine}</div>
       </div>
       <div class="room-bar__right">
         <${LoadoutButton} from="room" size="lg" class="room-loadout" />

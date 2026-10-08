@@ -78,7 +78,7 @@
 //     a player seat (the seat is kept and given back on resume).
 
 import { randomBytes, randomInt } from 'node:crypto';
-import { ERR, MAX_SEATS, MAX_SPECTATORS, ROOM_CODE_LEN, modeIdFor } from '../shared/constants.js';
+import { ERR, MAX_SEATS, MAX_SPECTATORS, ROOM_CODE_LEN, ROOM_TIMER_SCALE, modeIdFor } from '../shared/constants.js';
 import { checkLoadout } from '../shared/protocol.js';
 import { encode, isDroppable, isErrCode, sendRaw, sendSession } from './net.js';
 import { getData as defaultGetData, lookup } from './data.js';
@@ -121,11 +121,12 @@ function freezeLoadout(loadout) {
 
 /** One room: 4 seat slots, host, difficulty, optional running match. */
 export class Room {
-  /** @param {string} code @param {'solo'|'coop'} mode @param {string} difficulty @param {number} now */
-  constructor(code, mode, difficulty, now) {
+  /** @param {string} code @param {'solo'|'coop'} mode @param {string} difficulty @param {number} now @param {number} timerScale */
+  constructor(code, mode, difficulty, now, timerScale = ROOM_TIMER_SCALE.default) {
     this.code = code;
     this.mode = mode;
     this.difficulty = difficulty;
+    this.timerScale = mode === 'coop' ? timerScale : ROOM_TIMER_SCALE.default;
     /** @type {string | null} */
     this.hostId = null;
     /** @type {(Seat | null)[]} */
@@ -175,6 +176,7 @@ export class Room {
       hostId: this.hostId,
       mode: this.mode,
       difficulty: this.difficulty,
+      timerScale: this.timerScale,
       inMatch: !!this.match,
       seats: this.seats.map((s) => (s
         ? { seat: s.seat, playerId: s.playerId, name: s.name, isBot: s.isBot, ready: s.ready, connected: s.connected && !s.left }
@@ -339,7 +341,7 @@ export class Lobby {
   // room.* handlers
   // ---------------------------------------------------------------------------------------------------
 
-  create(session, { mode, difficulty }) {
+  create(session, { mode, difficulty, timerScale = ROOM_TIMER_SCALE.default }) {
     const cur = this.roomOf(session);
     if (cur && cur.match) return fail(ERR.ROOM_STARTED, 'leave your running match first');
     if (this.rooms.size >= this.opts.maxRooms) return fail(ERR.INTERNAL, 'too many rooms');
@@ -355,7 +357,7 @@ export class Lobby {
     const code = this.genCode();
     if (!code) return fail(ERR.INTERNAL, 'no room code available');
     if (cur) this.removeMember(cur, session.playerId);
-    const room = new Room(code, mode, difficulty, this.now());
+    const room = new Room(code, mode, difficulty, this.now(), timerScale);
     room.ownerKey = key;
     room.seats[0] = this.humanSeat(0, session);
     room.hostId = session.playerId;
@@ -598,6 +600,7 @@ export class Lobby {
         mode: room.mode,
         difficulty: room.difficulty,
         modeId: modeIdFor(room.mode, room.difficulty),
+        timerScale: room.timerScale,
         seats,
         // the spectator seats (header): watched like eliminated players, never players
         spectators: room.spectators.map((s) => s.playerId),

@@ -219,17 +219,19 @@ export function phaseTotalSeconds(pub, config, myId = null) {
   const timers = isObj(config?.timers) ? config.timers : {};
   const mode = isObj(config?.modes) ? config.modes[pub.modeId] : null;
   const num = (v) => (Number.isFinite(v) && v > 0 ? v : null);
+  const scale = Number.isFinite(pub.timerScale) && pub.timerScale >= 0 ? pub.timerScale : 1;
+  const timed = (v) => { const seconds = num(v); return seconds == null ? null : seconds * scale; };
   switch (pub.phase) {
-    case PHASE.INFO_CHECK: return num(timers.infoCheck) ?? 25;
+    case PHASE.INFO_CHECK: return timed(num(timers.infoCheck) ?? 25);
     // one countdown: the current turn's (m.public.draft.turnSeconds = Match.BAND_TURN_SECONDS; user playtest #4 item 4)
-    case PHASE.BAND_DRAFT: return num(pub.draft?.turnSeconds) ?? num(timers.bandTurn) ?? 30;
-    case PHASE.BATTLE_CHECK: return num(timers.battleCheck) ?? 3;
+    case PHASE.BAND_DRAFT: return num(pub.draft?.turnSeconds) ?? timed(num(timers.bandTurn) ?? 30);
+    case PHASE.BATTLE_CHECK: return timed(num(timers.battleCheck) ?? 3);
     case PHASE.SP_DRAFT: {
       const sp = normalizeSp(pub.sp, pub.players);
       const first = !sp || sp.pickedCount === 0;
-      return first ? (num(timers.spFirst) ?? 30) : (num(timers.spTurn) ?? 16);
+      return timed(first ? (num(timers.spFirst) ?? 30) : (num(timers.spTurn) ?? 16));
     }
-    case PHASE.PREP: return num(mode?.rounds?.[String(pub.round)]?.prepTime);
+    case PHASE.PREP: return timed(mode?.rounds?.[String(pub.round)]?.prepTime);
     case PHASE.COMBAT:
     case PHASE.UNITE: return num(mode?.rounds?.[String(pub.round)]?.combatTimeLimit);
     // 最终攻势 / 隐秘核心: m.public.deadline is the level's 120 s countdown (maxPlayTime; the battle goes on past it)

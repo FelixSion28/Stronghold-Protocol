@@ -15,6 +15,9 @@ export const MAX_SEATS = 4;
 export const MAX_SPECTATORS = 2;
 export const ROOM_CODE_LEN = 4;
 export const NAME_MAX_LEN = 12;
+/** Co-op phase duration multiplier offered when creating a room. */
+export const ROOM_TIMER_SCALE = Object.freeze({ min: 1, max: 5, step: 0.1, default: 1,
+  presets: Object.freeze([1, 1.5, 2, 2.5, 3, 4, 5]) });
 
 export const DIFFICULTIES = ['FUNNY', 'NORMAL', 'HARD', 'ABYSS'];
 export const DIFFICULTY_NAMES = { FUNNY: '标准模拟', NORMAL: '险境模拟', HARD: '绝境模拟', ABYSS: '终极模拟' };

@@ -201,7 +201,7 @@ const OK = Object.freeze({ ok: true });
 const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
 const fail = (error, detail) => (detail ? { error, detail } : { error });
 
-/** Fixed presentation delays (real ms, × timerScale). */
+/** Presentation delays in real ms; ROUND_START, COMBAT_END and SETTLE stay fixed regardless of timerScale. */
 export const DELAYS = Object.freeze({
   ROUND_START: 2000,
   COMBAT_END: 1500,
@@ -646,13 +646,14 @@ export class Match {
 
   /**
    * Set the phase deadline (seconds; null/0 ⇒ untimed) and its timeout callback. `silent`: the timer runs but no
-   * deadline is published (m.public.deadline 0 ⇒ no countdown) — the fixed presentation steps of a solo match.
+    * deadline is published (m.public.deadline 0 ⇒ no countdown) — the fixed presentation steps of a solo match.
+    * `scale: false` keeps a transition at its original duration regardless of timerScale.
    */
-  setDeadline(seconds, fn, { silent = false } = {}) {
+  setDeadline(seconds, fn, { silent = false, scale = true } = {}) {
     this.cancel(this._phaseTimer);
     this._phaseTimer = null;
     if (!(seconds > 0) || typeof fn !== 'function') { this.deadline = 0; return; }
-    const ms = this.scaled(seconds * 1000);
+    const ms = scale ? this.scaled(seconds * 1000) : Math.round(seconds * 1000);
     this.deadline = silent ? 0 : this.sched.now() + ms;
     this._phaseTimer = this.later(ms, () => { this._phaseTimer = null; fn(); });
   }
@@ -858,6 +859,7 @@ export class Match {
       round: this.round,
       lastRound: this.gd.lastRound,
       deadline: this.deadline,
+      timerScale: this.timerScale,
       serverNow: this.sched.now(),
       modeId: this.modeId,
       difficulty: this.difficulty,
@@ -1519,7 +1521,7 @@ export class Match {
       try { this.dispatcher.dispatchEliminated(ps, 'onRoundStart', { round: r }); } catch (e) { this.reportError('dispatch onRoundStart (eliminated)', e); }
     }
     for (const ps of alive) ps.recompute();
-    this.setDeadline(DELAYS.ROUND_START / 1000, () => this.afterRoundStart(), { silent: this.soloUntimed });
+    this.setDeadline(DELAYS.ROUND_START / 1000, () => this.afterRoundStart(), { silent: this.soloUntimed, scale: false });
     this.markPublic();
   }
 
@@ -1979,7 +1981,7 @@ export class Match {
     for (const f of this.fields) f.live = false;
     this.deadline = 0;
     this.markPublic();
-    this.later(this.scaled(DELAYS.COMBAT_END), () => this._afterCombat());
+    this.later(DELAYS.COMBAT_END, () => this._afterCombat());
   }
 
   /**
@@ -2015,7 +2017,7 @@ export class Match {
         this.fields[0].live = false;
         this.deadline = 0;
         this.markPublic();
-        this.later(this.scaled(DELAYS.COMBAT_END), () => this.settle(plan, res));
+        this.later(DELAYS.COMBAT_END, () => this.settle(plan, res));
       },
     });
     this.runner.start();
@@ -2456,7 +2458,7 @@ export class Match {
     this.deadline = 0;
     this.markPublic();
     const plan = this.unitePlan;
-    this.later(this.scaled(DELAYS.COMBAT_END), () => this.settle(plan, res));
+    this.later(DELAYS.COMBAT_END, () => this.settle(plan, res));
   }
 
   // ---- reports
@@ -2929,7 +2931,7 @@ export class Match {
     this.fields = [];
     this.watchers.clear();
     this.markPublic();
-    this.setDeadline(DELAYS.SETTLE / 1000, () => this.afterSettle(), { silent: this.soloUntimed });
+    this.setDeadline(DELAYS.SETTLE / 1000, () => this.afterSettle(), { silent: this.soloUntimed, scale: false });
   }
 
   /**
@@ -3186,7 +3188,7 @@ export class Match {
     this.runner = null;
     if (!hidden) {
       const eligible = victory && !!this.hiddenBossId && hiddenEligible(this.gd, { layerSum: this.hiddenLayerSum, teamLp: this.teamLp });
-      this.later(this.scaled(DELAYS.SETTLE), () => {
+      this.later(DELAYS.SETTLE, () => {
         if (eligible) {
           this.hiddenReached = true;
           this.bossPool = null;
@@ -3197,7 +3199,7 @@ export class Match {
         }
       });
     } else {
-      this.later(this.scaled(DELAYS.SETTLE), () => this.finish({ victory: true, hiddenCleared: victory, reason: 'victory' }));
+      this.later(DELAYS.SETTLE, () => this.finish({ victory: true, hiddenCleared: victory, reason: 'victory' }));
     }
   }
 

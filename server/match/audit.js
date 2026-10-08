@@ -33,7 +33,7 @@
 //                 after a win when hiddenEligible() holds
 //   result        each title ≤ once, ≤ 1 title per player, onlyOnWin titles only on a win, roundsPassed per player,
 //                 Σ alive players' LP = the merged team LP after the Final Assault
-//   deadlines     every timed phase's m.public deadline equals its configured duration × timerScale; the co-op
+//   deadlines     timed phase deadlines use their configured duration × timerScale, except ROUND_START (2 s) and SETTLE (3 s); the co-op
 //                 strategy draft has one countdown: the deadline is the current turn's (Match.BAND_TURN_SECONDS). A match
 //                 with a single human (solo, or a 同盟 room with AI teammates only: Match.soloUntimed) times nothing
 //                 outside its battles — no INFO_CHECK / draft / 机变 / prep deadline, BATTLE_CHECK / ROUND_START / SETTLE
@@ -72,9 +72,9 @@ export function attachAudit(m, { invariants = true, limit = 200 } = {}) {
     if (typeof orig !== 'function') return;
     obj[name] = function wrapped(...args) { return around.call(this, orig.bind(this), ...args); };
   };
-  const expectDeadline = (seconds, label, { silentSolo = false } = {}) => check(`deadline ${label}`, () => {
+  const expectDeadline = (seconds, label, { silentSolo = false, scale = true } = {}) => check(`deadline ${label}`, () => {
     // a solo match's presentation steps run silently (no countdown, Match.soloUntimed)
-    const want = seconds > 0 && !(silentSolo && m.soloUntimed) ? Math.max(0, Math.round(seconds * 1000 * m.timerScale)) : 0;
+    const want = seconds > 0 && !(silentSolo && m.soloUntimed) ? Math.max(0, Math.round(seconds * 1000 * (scale ? m.timerScale : 1))) : 0;
     const got = m.deadline ? m.deadline - m.sched.now() : 0;
     if (Math.abs(got - want) > 1) fail(`${label}: deadline in ${got} ms, expected ${want} ms`);
   });
@@ -311,7 +311,7 @@ export function attachAudit(m, { invariants = true, limit = 200 } = {}) {
     runInvariants();
     check('round start phase', () => {
       if (m.phase !== PHASE.ROUND_START) return;
-      expectDeadline(2, 'ROUND_START', { silentSolo: true });
+      expectDeadline(2, 'ROUND_START', { silentSolo: true, scale: false });
       const isBoss = rr === gd.bossRound || rr === gd.hiddenRound;
       if (isBoss ? !m.bossWaves : !m.wave) fail('round without its wave');
     });
@@ -427,7 +427,7 @@ export function attachAudit(m, { invariants = true, limit = 200 } = {}) {
           if (ps.lp !== 0) fail(`${ps.playerId}: eliminated with LP ${ps.lp}`);
         }
       }
-      expectDeadline(3, 'SETTLE', { silentSolo: true });
+      expectDeadline(3, 'SETTLE', { silentSolo: true, scale: false });
     });
     runInvariants();
     return res;
