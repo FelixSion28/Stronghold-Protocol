@@ -2,6 +2,7 @@
 // tower, status glyph (… acting / ✓ ready / ⌛ deciding / ⚔ combat / door left / ✕ dead), AI badge, "you" marker, the
 // field being watched (eye badge), and emote bubbles. In a boss round the viewer's pair is framed in green from the
 // round's start (gameLogic teamFrameIds; community report of 2026-10-06, item 51).
+// Fixed shared-pool groups use A–E corner badges and a light section frame, independently of that boss pairing.
 // Observing (client-side combat, `observe` prop — the official flow): tapping a teammate's avatar expands a mint
 // "前往查看" button under the row (when that teammate can be observed now; otherwise the reason is toasted through
 // onWatch); while observing, the own row shows a "返回战场" button. Without `observe` (server-run combat) a click
@@ -20,7 +21,7 @@ import { PHASE } from '../../../shared/constants.js';
 import { html, Icon, Tooltip } from './components.js';
 import { PlayerAvatar, LpTower, GIcon, LocalSprite } from './gameComponents.js';
 import { EmoteBubble } from './emotes.js';
-import { STATUS_META, sortedPlayers, teamFrameIds } from './gameLogic.js';
+import { STATUS_META, poolGroupSections, teamFrameIds } from './gameLogic.js';
 import { MissTag, uniteRemaining } from './hud.js';
 import { localAsset } from '../data.js';
 import { t } from '../../../shared/i18n.js';
@@ -81,7 +82,9 @@ export function TeamPanel({ pub, myId, watching, bubbles, emotes = [], emoteNow 
   const feedRef = useRef(null);
   const phaseKey = `${pub?.phase}:${pub?.round}`;
   useEffect(() => { setOpenPid(null); }, [phaseKey, watching, observe?.observing]);
-  const players = sortedPlayers(pub);
+  const sections = poolGroupSections(pub);
+  const players = sections.flatMap((section) => section.players);
+  const grouped = sections.some((section) => section.group);
   const many = players.length > 6;
   const playersById = new Map(players.map((p) => [p.playerId, p]));
   const activeEmotes = many && Array.isArray(emotes) ? emotes.filter((e) => e && playersById.has(e.playerId)
@@ -102,9 +105,12 @@ export function TeamPanel({ pub, myId, watching, bubbles, emotes = [], emoteNow 
     if (!t.fieldId) { setOpenPid(null); onWatch(p); return; } // the game screen toasts the reason
     setOpenPid((cur) => (cur === p.playerId ? null : p.playerId));
   };
-  return html`<aside class=${cx('team', compact && 'team--compact', many && 'team--many')} aria-label=${t('同盟成员')}>
+  return html`<aside class=${cx('team', compact && 'team--compact', many && 'team--many', grouped && 'team--grouped')} aria-label=${t('同盟成员')}>
     <div class="team__list">
-    ${players.map((p) => {
+    ${sections.map(({ group, players: members }) => html`<div key=${members[0].playerId}
+      class=${cx('team__section', group && 'team__pool-group')} style=${group ? `--pool-group-color:${group.color}` : undefined}
+      role=${group ? 'group' : undefined} aria-label=${group ? t('{group}组 · 同组共享卡池', { group: group.label }) : undefined}>
+    ${members.map((p) => {
       const self = p.playerId === myId;
       const status = p.alive === false ? 'dead' : p.status;
       const meta = STATUS_META[status] || STATUS_META.acting;
@@ -116,11 +122,14 @@ export function TeamPanel({ pub, myId, watching, bubbles, emotes = [], emoteNow 
       const title = observe ? (self ? (observe.observing ? t('返回战场') : t('你自己')) : t('查看 {name} 的战场', { name: p.name })) : (self ? t('查看自己的阵地') : t('查看 {name} 的阵地', { name: p.name }));
       const lp = rowLp(p, pub, self ? selfLive : null, { uniteLocal, cap });
       const inTeam = team.has(p.playerId);
+      const groupTip = group ? t('{group}组 · 同组共享卡池', { group: group.label }) : null;
+      const avatarTitle = [title, inTeam && !self && t('与你在同一战场'), groupTip].filter(Boolean).join(' · ');
       return html`<div key=${p.playerId} class=${cx('team__row', self && 'is-self', inTeam && 'is-team', watched && 'is-watched', p.alive === false && 'is-dead', open && 'is-open')}>
-        <button type="button" class="team__btn" onClick=${() => click(p, self)} title=${inTeam && !self ? `${title} · ${t('与你在同一战场')}` : title} aria-expanded=${observe && !self ? String(open) : undefined}>
+        <button type="button" class="team__btn" onClick=${() => click(p, self)} title=${avatarTitle} aria-label=${avatarTitle} aria-expanded=${observe && !self ? String(open) : undefined}>
           <${PlayerAvatar} player=${p} self=${self} />
           ${inTeam ? html`<span class=${cx('team__frame', !frameArt && 'team__frame--plain')} style=${frameArt ? `--frame:url("${frameArt}")` : undefined} aria-hidden="true"></span>` : null}
           <span class="team__seat num">P${(p.seat ?? 0) + 1}</span>
+          ${group ? html`<${Tooltip} text=${groupTip} placement="right" class="team__group-badge">${group.label}<//>` : null}
           ${p.isBot ? html`<span class="team__ai">AI</span>` : null}
           ${self ? html`<span class="team__you"><${Icon} name="user" /></span>` : null}
         </button>
@@ -147,6 +156,7 @@ export function TeamPanel({ pub, myId, watching, bubbles, emotes = [], emoteNow 
         ${bubble ? html`<${EmoteBubble} key=${bubble.seq} id=${bubble.id} class="team__bubble" />` : null}
       </div>`;
     })}
+    </div>`)}
     </div>
     ${many && activeEmotes.length ? html`<div class="team__emote-feed" role="log" aria-live="polite" aria-label=${t('同盟表情')} ref=${feedRef}>
       ${activeEmotes.map((e) => {

@@ -1078,5 +1078,6 @@
   "暂无可投票玩家": "No eligible voters",
   "同盟表情": "Alliance Emotes",
   "{name}发送表情": "{name} sent an emote",
-  "投票通过：第一轮联防结束后跳过第二轮，按剩余漏怪结算": "Vote approved: skip the second Unite wave after the first ends, then settle the remaining leaks"
+  "投票通过：第一轮联防结束后跳过第二轮，按剩余漏怪结算": "Vote approved: skip the second Unite wave after the first ends, then settle the remaining leaks",
+  "{group}组 · 同组共享卡池": "Group {group} · Shared Operator pool"
 }
