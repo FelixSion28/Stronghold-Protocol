@@ -77,9 +77,12 @@ export class SharedPool {
     this.entries = new Map();
     for (const id of gd.visibleChess) {
       if (ban.has(id)) continue;
-      const cap = Math.ceil(gd.poolCopies(id) * this.scale);
+      const tier = gd.tierOf(id);
+      const scaled = gd.poolCopies(id) * this.scale;
+      // Five-player tier III uses 22 instead of rounding 18 * 1.25 up to 23.
+      const cap = this.scale === poolCopyScale(5) && tier === 3 ? Math.floor(scaled) : Math.ceil(scaled);
       if (cap <= 0) continue;
-      this.entries.set(id, { cap, left: cap, tier: gd.tierOf(id) });
+      this.entries.set(id, { cap, left: cap, tier });
     }
     this.banned = [...ban].sort();
   }

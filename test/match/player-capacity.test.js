@@ -4,8 +4,14 @@ import { DATA, makeMatch, give } from './harness.js';
 import { poolGroupSizes, poolCopyScale } from '../../shared/playerCapacity.js';
 import { makeCtx } from '../../server/match/effectsMeta.js';
 
-for (const [count, sizes] of [[1, [1]], [4, [4]], [5, [5]], [6, [6]], [7, [4, 3]], [8, [4, 4]],
-  [9, [3, 3, 3]], [10, [4, 3, 3]], [16, [4, 4, 4, 4]], [20, [4, 4, 4, 4, 4]]]) {
+const GROUP_CASES = [[1, [1]], [2, [2]], [3, [3]], [4, [4]], [5, [5]], [6, [3, 3]], [7, [4, 3]],
+  [8, [4, 4]], [9, [4, 5]], [10, [4, 3, 3]], [11, [4, 4, 3]], [12, [4, 4, 4]], [13, [5, 4, 4]],
+  [14, [4, 4, 3, 3]], [15, [4, 4, 4, 3]], [16, [4, 4, 4, 4]], [17, [5, 4, 4, 4]],
+  [18, [4, 4, 4, 3, 3]], [19, [4, 4, 4, 4, 3]], [20, [4, 4, 4, 4, 4]]];
+const ORIGINAL_CAPS = { 1: 12, 2: 14, 3: 18, 4: 16, 5: 8, 6: 5 };
+const FIVE_PLAYER_CAPS = { 1: 15, 2: 18, 3: 22, 4: 20, 5: 10, 6: 7 };
+
+for (const [count, sizes] of GROUP_CASES) {
   test(`${count} players: fixed pool groups ${sizes.join('+')}, including a complete original pool for three`, () => {
     const h = makeMatch({ humans: count, fake: true });
     const m = h.m;
@@ -15,7 +21,9 @@ for (const [count, sizes] of [[1, [1]], [4, [4]], [5, [5]], [6, [6]], [7, [4, 3]
     for (const group of m.poolGroups) {
       assert.equal(group.scale, poolCopyScale(group.playerIds.length));
       for (const [id, entry] of group.pool.entries) {
-        assert.equal(entry.cap, Math.ceil(m.gd.poolCopies(id) * group.scale));
+        const five = group.playerIds.length === 5;
+        const caps = five ? FIVE_PLAYER_CAPS : ORIGINAL_CAPS;
+        assert.equal(entry.cap, id === 'chess_char_6_11_a' ? (five ? 5 : 4) : caps[entry.tier], id);
       }
       for (const id of group.playerIds) assert.equal(m.poolFor(id), group.pool);
     }
@@ -24,27 +32,49 @@ for (const [count, sizes] of [[1, [1]], [4, [4]], [5, [5]], [6, [6]], [7, [4, 3]
   });
 }
 
-test('a group buying, merging, selling or being eliminated never spends or returns another group\'s copies', () => {
-  const h = makeMatch({ humans: 8, fake: true });
-  const m = h.m, p0 = h.ps('p_0'), p4 = h.ps('p_4');
-  const id = [...p0.pool.entries.keys()].find((id) => m.gd.goldenIdOf(id) && m.gd.mergeCount(id) === 3);
-  const cap = p0.pool.cap(id);
-  for (let i = 0; i < 3; i++) p0.acquireChess(id, { source: 'test' });
-  assert.equal(p0.pool.left(id), cap - 3);
-  assert.equal(p4.pool.left(id), cap);
-  assert.ok(p0.hand.some((p) => p && p.id === m.gd.goldenIdOf(id)));
-  const mate = give(m, p4, id);
-  assert.equal(p4.pool.left(id), cap - 1);
-  p0.eliminate(1);
-  assert.equal(p0.pool.left(id), cap);
-  assert.equal(p4.pool.left(id), cap - 1);
-  assert.equal(m.poolGroups[0].playerIds.length, 4, 'elimination never reshuffles the groups');
-  p4.returnCopies(mate);
-  p4.hand.fill(null);
-  p4.recompute();
-  h.invariants();
-  m.dispose();
+test('pool group sizes reject invalid counts and cannot be changed by a previous caller', () => {
+  for (const count of [0, -1, 21, 1.5, NaN, Infinity]) assert.throws(() => poolGroupSizes(count), RangeError);
+  const first = poolGroupSizes(9);
+  first[0] = 9;
+  first.pop();
+  assert.deepEqual(poolGroupSizes(9), [4, 5]);
 });
+
+test('nine occupied seats are assigned in seat order, including empty seat gaps and reversed input', () => {
+  const seats = [0, 2, 4, 6, 8, 10, 12, 14, 19].map((seat) => ({
+    seat, playerId: `seat_${seat}`, name: `P${seat}`, isBot: false, connected: true,
+  })).reverse();
+  const h = makeMatch({ seats, fake: true });
+  assert.deepEqual(h.m.poolGroups.map((g) => g.playerIds), [
+    ['seat_0', 'seat_2', 'seat_4', 'seat_6'], ['seat_8', 'seat_10', 'seat_12', 'seat_14', 'seat_19'],
+  ]);
+  h.invariants();
+  h.m.dispose();
+});
+
+for (const [count, firstSize] of [[6, 3], [8, 4], [9, 4], [13, 5]]) {
+  test(`${count} players: buying, merging, selling and elimination preserve every other group's copies`, () => {
+    const h = makeMatch({ humans: count, fake: true });
+    const m = h.m, p0 = h.ps('p_0'), matePs = h.ps(`p_${firstSize}`);
+    const id = [...p0.pool.entries.keys()].find((id) => m.gd.tierOf(id) === 3 && m.gd.goldenIdOf(id) && m.gd.mergeCount(id) === 3);
+    const caps = m.poolGroups.map((g) => g.pool.cap(id));
+    const left = () => m.poolGroups.map((g) => g.pool.left(id));
+    for (let i = 0; i < 3; i++) p0.acquireChess(id, { source: 'test' });
+    assert.deepEqual(left(), caps.map((n, i) => n - (i === 0 ? 3 : 0)));
+    assert.ok(p0.hand.some((p) => p && p.id === m.gd.goldenIdOf(id)));
+    const mate = give(m, matePs, id);
+    assert.deepEqual(left(), caps.map((n, i) => n - (i === 0 ? 3 : i === 1 ? 1 : 0)));
+    p0.eliminate(1);
+    assert.deepEqual(left(), caps.map((n, i) => n - (i === 1 ? 1 : 0)));
+    assert.equal(m.poolGroups[0].playerIds.length, firstSize, 'elimination never reshuffles the groups');
+    matePs.returnCopies(mate);
+    matePs.hand.fill(null);
+    matePs.recompute();
+    assert.deepEqual(left(), caps);
+    h.invariants();
+    m.dispose();
+  });
+}
 
 test('depleting one group leaves shop rolls and effect grants of the other group available', () => {
   const h = makeMatch({ humans: 7, fake: true });
@@ -55,6 +85,26 @@ test('depleting one group leaves shop rolls and effect grants of the other group
   assert.equal(p4.pool.roll(h.m.rngMeta, { filter: (x) => x === id }), id);
   assert.equal(p4.pool.cap(id), h.m.gd.poolCopies(id), 'three-player group has the original amount');
   p0.pool.give(id, held);
+  h.invariants();
+  h.m.dispose();
+});
+
+test('nine players: a five-player group does not expand private DIY stock', () => {
+  const slotId = 'chess_char_5_diy1_a';
+  const seats = Array.from({ length: 9 }, (_, seat) => ({
+    seat, playerId: `p_${seat}`, name: `P${seat}`, connected: true, isBot: false,
+    diy: seat === 8 ? { [slotId]: { charId: 'char_609_acguad' } } : null,
+  }));
+  const h = makeMatch({ seats, fake: true });
+  const ps = h.ps('p_8');
+  assert.equal(h.m.poolGroups[1].playerIds.length, 5);
+  assert.equal(ps.diyStock.cap(slotId), 8, 'private tier V remains the original eight copies');
+  for (const group of h.m.poolGroups) assert.equal(group.pool.has(slotId), false);
+  const piece = ps.acquireChess(slotId, { source: 'test' });
+  assert.ok(piece);
+  assert.equal(ps.diyStock.left(slotId), 7);
+  ps.eliminate(1);
+  assert.equal(ps.diyStock.left(slotId), 8);
   h.invariants();
   h.m.dispose();
 });
