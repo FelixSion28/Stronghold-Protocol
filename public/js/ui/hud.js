@@ -62,6 +62,10 @@ export function PhaseCapsule({ pub, hud, miss = null }) {
         fallback=${html`<${Icon} name="sword" class="capsule__icon" />`} />
       <span class="capsule__kills num"><b>${hud?.killed ?? 0}</b>/${hud?.total ?? '--'}</span>
       ${phase === PHASE.UNITE ? html`<span class="capsule__tag">${t('联防')}</span>` : null}
+      ${phase === PHASE.UNITE && Number.isInteger(pub?.unite?.round) && pub.unite.roundsMax > 1
+        ? html`<span class="capsule__wave num" data-testid="unite-wave"
+          title=${t('第 {wave} 轮联防 · 最多 {max} 轮', { wave: pub.unite.round, max: pub.unite.roundsMax })}>
+          ${pub.unite.round}/${pub.unite.roundsMax}</span>` : null}
       ${phase === PHASE.UNITE && Number.isFinite(miss) ? html`<${MissTag} n=${miss} />` : null}
     </div>`;
   }
@@ -379,16 +383,16 @@ export function TopBar({ pub, priv, conn, hud, total, drawer, onExit, onDrawer, 
 export function UniteSkipVote({ pub, myId, onVote }) {
   const unite = pub?.unite;
   const vote = unite?.skipVote;
-  if (pub?.phase !== PHASE.UNITE || unite?.round !== 1 || unite.roundsMax < 2 || !vote) return null;
+  if (pub?.phase !== PHASE.UNITE || unite?.round >= unite?.roundsMax || !vote) return null;
   const eligible = vote.eligible.includes(myId);
   const voted = vote.voters.includes(myId);
   return html`<div class="unite-vote" role="status">
     <${Button} variant="secondary" size="sm" disabled=${!eligible || voted || vote.passed || !vote.open}
-      onClick=${onVote} data-testid="unite-skip-vote"
-      title=${t('超过半数在线且未托管的人类玩家同意后，第一轮打完就跳过第二轮，剩余漏怪照常扣除目标生命值')}>
-      ${vote.passed ? t('已通过：跳过第二轮') : voted ? t('已投票跳过第二轮') : t('投票跳过第二轮')}
+      onClick=${() => onVote?.(vote.id == null ? {} : { voteId: vote.id })} data-testid="unite-skip-vote"
+      title=${t('超过半数在线且未托管的人类玩家同意后，本轮打完就跳过后续全部联防，剩余漏怪照常扣除目标生命值')}>
+      ${vote.passed ? t('已通过：跳过后续全部联防') : voted ? t('已投票跳过后续全部联防') : t('投票跳过后续全部联防')}
     <//>
-    <span class="unite-vote__count">${vote.passed ? t('第一轮结束后直接结算')
+    <span class="unite-vote__count">${vote.passed ? t('本轮结束后直接结算')
       : vote.eligible.length ? t('{votes}/{eligible} 票 · 需 {needed} 票', { votes: vote.voters.length, eligible: vote.eligible.length, needed: vote.needed }) : t('暂无可投票玩家')}</span>
   </div>`;
 }

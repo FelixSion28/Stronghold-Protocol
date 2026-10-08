@@ -75,7 +75,7 @@ for (const n of [7, 8, 20]) {
 test('second unite wave preserves duplicate enemies by source and mods and respects a one-helper wave limit', () => {
   const leak = (sourcePlayerId, rank, coins) => ({ enemyKey: 'enemy_a', sourcePlayerId, tag: null,
     mods: { rank }, lpr: 1, bounty: { coins, ownerPlayerId: sourcePlayerId } });
-  const plan = { round: 1, roundsMax: 2, helpers: [{ playerId: 'h_0' }],
+  const plan = { round: 1, roundsMax: 2, perRound: 1, helpers: [{ playerId: 'h_0' }],
     reserveHelpers: [{ playerId: 'h_1', alive: true, left: false }, { playerId: 'h_2', alive: true, left: false }],
     leakers: [{ playerId: 'p_0' }, { playerId: 'p_1' }], notReentered: new Map(),
     leaked: [leak('p_0', 1, 3), leak('p_0', 2, 5), leak('p_1', 1, 7)], history: [], usedHelpers: [] };
@@ -85,8 +85,10 @@ test('second unite wave preserves duplicate enemies by source and mods and respe
       { enemyKey: 'enemy_a', sourcePlayerId: 'p_1', tag: null, mods: { rank: 1 } },
     ] } } };
   const next = nextUnitePlan(plan, result);
-  assert.equal(nextUnitePlan(plan, result, 7), null, 'a second wave is cancelled if departures leave fewer than eight players');
+  assert.deepEqual(nextUnitePlan(plan, result, 7), next,
+    'the old living-player argument no longer lowers the opening groups\' fixed limit');
   assert.deepEqual(next.helpers.map((p) => p.playerId), ['h_1']);
+  assert.deepEqual(next.reserveHelpers.map((p) => p.playerId), ['h_2']);
   assert.deepEqual(next.leaked.map((l) => [l.sourcePlayerId, l.mods.rank, l.bounty.coins]),
     [['p_0', 1, 3], ['p_0', 2, 5], ['p_1', 1, 7]]);
 });

@@ -75,7 +75,7 @@ export const actions = {
   // `playerId`: the player tapped in the team panel (a shared field shows two) — what an eliminated viewer follows
   watch: (fieldId, playerId = null) => act('g.watch', typeof playerId === 'string' && playerId ? { fieldId, playerId } : { fieldId }, { sfx: 'tab' }),
   autoplay: (on) => act('g.autoplay', { on }),
-  uniteSkipVote: () => act('g.uniteSkipVote', {}, { sfx: 'confirm' }),
+  uniteSkipVote: ({ voteId } = {}) => act('g.uniteSkipVote', voteId == null ? {} : { voteId }, { sfx: 'confirm' }),
   // solo battles only (ui/matchStatus.js pauseAvailable): m.public.paused follows
   pause: (on) => act('g.pause', { on: !!on }, { sfx: on ? 'click' : 'confirm' }),
 };

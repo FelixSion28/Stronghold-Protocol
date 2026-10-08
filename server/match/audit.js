@@ -44,7 +44,7 @@
 // Checks never throw into the match: an exception inside a check is itself recorded as a violation.
 
 import { PHASE, MAX_DRAFT_CARDS } from '../../shared/constants.js';
-import { coopDraftCardCount } from '../../shared/playerCapacity.js';
+import { coopDraftCardCount, uniteRoundLimit } from '../../shared/playerCapacity.js';
 import { collectViolations } from './invariants.js';
 import { mergeTile, pieceDir, canPlace, placeClass } from './board.js';
 import { pairPlayers, bossPoolHp, hiddenEligible } from './finalAssault.js';
@@ -482,7 +482,8 @@ export function attachAudit(m, { invariants = true, limit = 200 } = {}) {
       const counted = (pid) => ((m.lastResults.get(pid) || {}).leaked || []).filter((l) => l && l.counted !== false).length;
       const alive = m.alivePlayers();
       const leak = alive.some((p) => counted(p.playerId) > 0);
-      const perfect = alive.some((p) => counted(p.playerId) === 0);
+      const perfect = alive.some((p) => m.lastResults.has(p.playerId)
+        && m.lastResults.get(p.playerId).perfect !== false && counted(p.playerId) === 0);
       expectUnite = { round: m.round, expect: !m.isSolo && leak && perfect };
     });
     return orig();
@@ -493,17 +494,25 @@ export function attachAudit(m, { invariants = true, limit = 200 } = {}) {
       const counted = (pid) => ((res.get(pid) || {}).leaked || []).filter((l) => l && l.counted !== false).length;
       const alive = m.alivePlayers();
       const leakers = alive.filter((p) => counted(p.playerId) > 0).map((p) => p.playerId).sort();
-      const perfect = alive.filter((p) => counted(p.playerId) === 0);
+      const perfect = alive.filter((p) => res.has(p.playerId) && res.get(p.playerId).perfect !== false && counted(p.playerId) === 0);
       const helpers = helperOrder(m, perfect, res).map((p) => p.playerId);
       const perRound = Math.max(1, Math.min(2, gd.unite.maxHelpers));
+      const roundsLimit = uniteRoundLimit(m.poolGroups?.length || 1);
+      if (!Number.isInteger(plan.round) || plan.round < 1 || plan.round > roundsLimit
+        || !Number.isInteger(plan.roundsMax) || plan.roundsMax < plan.round || plan.roundsMax > roundsLimit)
+        fail(`联防 wave ${plan.round}/${plan.roundsMax} exceeds the fixed-group limit ${roundsLimit}`);
+      const usedIds = [...plan.usedHelpers, ...plan.helpers].map((p) => p.playerId);
+      if (new Set(usedIds).size !== usedIds.length) fail('联防 reused a helper across waves');
+      if (usedIds.length > perRound * roundsLimit) fail('联防 used more helpers than the fixed-group budget');
       if (plan.helpers.length > perRound) fail(`${plan.helpers.length} 联防 helpers in one wave (max ${perRound})`);
       if (plan.helpers.some((p) => !p.alive || p.left)) fail(`联防 helper eliminated / departed: ${plan.helpers.filter((p) => !p.alive || p.left).map((p) => p.playerId)}`);
       if (m.isSolo) fail('联防 in solo');
-      if (JSON.stringify(plan.leakers.map((p) => p.playerId).sort()) !== JSON.stringify(leakers)) fail(`联防 leakers ${plan.leakers.map((p) => p.playerId)} != ${leakers}`);
+      if (plan.round === 1 && JSON.stringify(plan.leakers.map((p) => p.playerId).sort()) !== JSON.stringify(leakers))
+        fail(`联防 leakers ${plan.leakers.map((p) => p.playerId)} != ${leakers}`);
+      if (plan.leakers.some((p) => counted(p.playerId) === 0)) fail('联防 includes a source that did not leak');
       if (plan.round === 1 && JSON.stringify(plan.helpers.map((p) => p.playerId)) !== JSON.stringify(helpers.slice(0, perRound)))
         fail(`联防 helpers ${plan.helpers.map((p) => p.playerId)} != ${helpers.slice(0, perRound)}`);
-      if (plan.round === 2 && plan.helpers.some((p) => plan.usedHelpers.includes(p) || !perfect.includes(p)))
-        fail('联防 second wave reused a helper or selected a leaker');
+      if (plan.helpers.some((p) => !perfect.includes(p))) fail('联防 selected a leaker or a non-perfect helper');
     });
     const r = orig(plan);
     runInvariants();

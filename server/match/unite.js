@@ -29,9 +29,9 @@
 // bonds carry the layers their own combat reached (PlayerState.battleInput `reached`: the round's pending gains, capped
 // like settle() — the strip's count; "以其阵地当前的状态" [ASSUMED] includes them; until 0.1.3 the round-start layers),
 // and settle() still adds those gains once. Time limit = the round's combat limit.
-// This fork selects at most four distinct helpers for two waves when at least eight players are alive. The first
-// pair's survivors go to the reserve pair; an online manual-human majority can skip that second wave. Settlement
-// keeps both waves' rewards and bills only the last survivors (docs/development/DECISIONS.md D006).
+// This fork allows one wave per opening pool group (at most five). Helpers are selected across the whole room,
+// at most two per wave without reuse, and surviving enemies pass to the next unused pair. Settlement keeps every
+// completed wave's rewards and bills only the last survivors.
 // LP: an enemy still alive at the end (leaked in the unite battle, or never spawned before the limit) costs its
 // SOURCE player 1 LP; each player's round loss = min(lpCap, survivors attributed to them + leaks that could not
 // re-enter) — the same 10 cap as a normal round.
@@ -59,9 +59,9 @@ export function planUnite(m, results) {
   }
   if (!leakers.length || !perfects.length) return null;
   const ordered = helperOrder(m, perfects, results);
-  const perRound = Math.max(1, Math.min(2, m.gd.unite.maxHelpers));
+  const perRound = Math.max(1, Math.min(2, Math.trunc(m.gd.unite.maxHelpers)));
   const helpers = ordered.slice(0, perRound);
-  const reserveHelpers = ordered.slice(perRound, MAX_UNITE_HELPERS);
+  const reserveHelpers = ordered.slice(perRound);
   const leaked = [];
   const notReentered = new Map();
   for (const ps of leakers) {
@@ -84,9 +84,9 @@ export function planUnite(m, results) {
       leaked.push({ enemyKey: l.enemyKey, mods: l.mods ? { ...l.mods } : null, lpr: l.lpr ?? 1, sourcePlayerId: ps.playerId, tag: l.tag ?? null, bounty });
     }
   }
-  return { helpers, reserveHelpers, leakers, leaked, notReentered, round: 1,
-    roundsMax: reserveHelpers.length ? uniteRoundLimit(alive.length) : 1, history: [], usedHelpers: [],
-    skipVotes: new Set(), skipSecond: false };
+  return { helpers, reserveHelpers, leakers, leaked, notReentered, round: 1, perRound,
+    roundsMax: Math.min(uniteRoundLimit(m.poolGroups?.length), Math.ceil(ordered.length / perRound)), history: [], usedHelpers: [],
+    skipVotes: new Set(), skipRemaining: false };
 }
 
 /**
@@ -120,15 +120,15 @@ export function helperStats(m, ps, results) {
 }
 
 /**
- * The ≤ maxHelpers helpers, first = the one that meets the enemies first (right-hand field): selection by units >
- * active bond > standing units > seat, then the pair ordered by units > active bond > layers > standing > seat.
+ * Select distinct perfect players from the whole room for all allowed waves. The first in each pair meets the
+ * enemies first (right-hand field): selection by units > active bond > standing units > seat, then the pair ordered
+ * by units > active bond > layers > standing > seat. Fixed groups set only the wave limit, never who fights together.
  */
 export function helperOrder(m, perfects, results) {
   const st = new Map(perfects.map((ps) => [ps.playerId, helperStats(m, ps, results)]));
   const S = (ps) => st.get(ps.playerId);
-  const perRound = Math.max(1, Math.min(2, m.gd.unite.maxHelpers));
-  const living = typeof m.alivePlayers === 'function' ? m.alivePlayers().length : perfects.length;
-  const limit = Math.min(MAX_UNITE_HELPERS, perRound * uniteRoundLimit(living));
+  const perRound = Math.max(1, Math.min(2, Math.trunc(m.gd.unite.maxHelpers)));
+  const limit = Math.min(MAX_UNITE_HELPERS, perRound * uniteRoundLimit(m.poolGroups?.length));
   const selected = perfects.slice().sort((a, b) => S(b).units - S(a).units || (S(b).active - S(a).active) || S(b).standing - S(a).standing || a.seat - b.seat)
     .slice(0, limit);
   const ordered = [];
@@ -146,7 +146,7 @@ export function plannedUniteSurvivors(plan) {
   return out;
 }
 
-/** Recover still leaking enemies for a second wave, retaining their source, stats and bounty when possible. */
+/** Recover still leaking enemies for the next wave, retaining their source, stats and bounty when possible. */
 export function uniteRemainingLeaks(plan, result) {
   // A twenty-player wave can carry thousands of leaks. Index the original spawns once so matching survivors does not
   // scan the entire list for every enemy. The same row belongs to its source/key/tag bucket and its exact-mods bucket.
@@ -195,14 +195,30 @@ export function uniteRemainingLeaks(plan, result) {
   return out;
 }
 
-/** A second pair is used only when there are surviving enemies and unused perfect teammates. */
-export function nextUnitePlan(plan, result, livingPlayers = Infinity) {
-  if (!plan || plan.skipSecond || plan.round >= plan.roundsMax || uniteRoundLimit(livingPlayers) <= plan.round || !result || result.synthetic) return null;
+/** Eligible unused helpers, in the original whole-room order, shared by continuation and the skip-vote view. */
+export function uniteReserveHelpers(plan) {
+  if (!plan) return [];
+  const seen = new Set([...plan.usedHelpers, ...plan.helpers].map((ps) => ps.playerId));
+  const reserve = [];
+  for (const ps of plan.reserveHelpers) {
+    if (!ps.alive || ps.left || seen.has(ps.playerId)) continue;
+    seen.add(ps.playerId);
+    reserve.push(ps);
+  }
+  return reserve;
+}
+
+/** Another unused pair is used only while enemies remain, under the opening groups' fixed limit. */
+export function nextUnitePlan(plan, result) {
+  if (!plan || plan.skipRemaining || plan.round >= plan.roundsMax || !result || result.synthetic) return null;
   const leaked = uniteRemainingLeaks(plan, result);
-  const helpers = plan.reserveHelpers.filter((ps) => ps.alive && !ps.left).slice(0, plan.helpers.length);
+  const perRound = Math.max(1, Math.min(2, Math.trunc(plan.perRound ?? plan.helpers.length)));
+  const usedHelpers = [...plan.usedHelpers, ...plan.helpers];
+  const reserve = uniteReserveHelpers(plan);
+  const helpers = reserve.slice(0, perRound);
   if (!leaked.length || !helpers.length) return null;
-  return { ...plan, helpers, reserveHelpers: [], leaked, round: plan.round + 1,
-    history: [...plan.history, result], usedHelpers: [...plan.usedHelpers, ...plan.helpers] };
+  return { ...plan, helpers, reserveHelpers: reserve.slice(perRound), leaked, round: plan.round + 1, perRound,
+    history: [...plan.history, result], usedHelpers, skipVotes: new Set(), skipRemaining: false };
 }
 
 /** Battle options for the unite field (without data/logger, added by the match). */

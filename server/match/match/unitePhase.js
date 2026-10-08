@@ -5,22 +5,23 @@
 
 import { PHASE, GEO, ERR } from '../../../shared/constants.js';
 import { deriveSeed } from '../../sim/rng.js';
-import { uniteBattleOpts, uniteSurvivors, plannedUniteSurvivors, nextUnitePlan } from '../unite.js';
+import { uniteBattleOpts, uniteSurvivors, plannedUniteSurvivors, nextUnitePlan, uniteReserveHelpers } from '../unite.js';
 import { FieldRunner, timelineAt, uniteBillBounds } from '../fields.js';
 import { uniteLeft } from '../../sim/spec.js';
 import { FLOW_TICKER_PRIORITY, DELAYS, OK, fail } from './common.js';
 import { msg } from '../../../shared/i18n.js';
 
 export class MatchUnite {
-  // Online human seats, including eliminated players, vote; approval is latched for this round.
+  // Each wave has fresh ballots; approval ends all later waves after the current battle finishes.
   uniteSkipVoters() { return this.humans().filter((ps) => ps.connected && !ps.autoplay); }
 
   uniteSkipVoteView() {
     const plan = this.unitePlan;
-    if (this.phase !== PHASE.UNITE || !plan || plan.round !== 1 || plan.roundsMax < 2) return null;
+    if (this.phase !== PHASE.UNITE || !plan || plan.round >= plan.roundsMax || !uniteReserveHelpers(plan).length) return null;
     const eligible = this.uniteSkipVoters().map((ps) => ps.playerId);
-    return { eligible, voters: eligible.filter((pid) => plan.skipVotes.has(pid)),
-      needed: Math.floor(eligible.length / 2) + 1, passed: plan.skipSecond, open: !!this.fields[0]?.live };
+    return { id: `unite:${this.battlePrefix}:${this.round}:${plan.round}`,
+      eligible, voters: eligible.filter((pid) => plan.skipVotes.has(pid)),
+      needed: Math.floor(eligible.length / 2) + 1, passed: plan.skipRemaining, open: !!this.fields[0]?.live };
   }
 
   refreshUniteSkipVote() {
@@ -28,16 +29,17 @@ export class MatchUnite {
     if (!vote) return;
     const plan = this.unitePlan;
     plan.skipVotes = new Set(vote.voters);
-    if (!plan.skipSecond && vote.open && vote.eligible.length && vote.voters.length >= vote.needed) {
-      plan.skipSecond = true;
-      this.tickerText(msg('投票通过：第一轮联防结束后跳过第二轮，按剩余漏怪结算'), FLOW_TICKER_PRIORITY);
+    if (!plan.skipRemaining && vote.open && vote.eligible.length && vote.voters.length >= vote.needed) {
+      plan.skipRemaining = true;
+      this.tickerText(msg('投票通过：本轮结束后跳过后续全部联防，按剩余漏怪结算'), FLOW_TICKER_PRIORITY);
     }
     this.markPublic();
   }
 
-  voteSkipUnite(ps) {
+  voteSkipUnite(ps, { voteId } = {}) {
     const vote = this.uniteSkipVoteView();
     if (!vote || !vote.open) return fail(ERR.WRONG_PHASE);
+    if (voteId != null && voteId !== vote.id) return fail(ERR.WRONG_PHASE);
     if (!vote.eligible.includes(ps.playerId)) return fail(ERR.BAD_TARGET, 'only connected manual humans may vote');
     if (vote.passed || this.unitePlan.skipVotes.has(ps.playerId)) return OK;
     this.unitePlan.skipVotes.add(ps.playerId);
@@ -168,10 +170,10 @@ export class MatchUnite {
     return standing + (plan.notReentered.get(pid) || 0);
   }
 
-  /** Run an unused second pair only while enemies remain; otherwise settle all completed waves. */
+  /** Run the next unused pair only while enemies remain; otherwise settle all completed waves. */
   _afterUniteWave(plan, result) {
     if (this.phase !== PHASE.UNITE || this.unitePlan !== plan) return;
-    const next = nextUnitePlan(plan, result, this.alivePlayers().length);
+    const next = nextUnitePlan(plan, result);
     if (next) this.startUnite(next);
     else this.settle(plan, result);
   }

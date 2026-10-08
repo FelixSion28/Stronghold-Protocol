@@ -19,6 +19,10 @@ function voteMatch({ humans = 3, bots = 8 - humans, clientCombat = false, before
 
 test('the skip vote is a validated game intent', () => {
   assert.equal(validateC2S(voteMsg), null);
+  assert.equal(validateC2S({ ...voteMsg, voteId: 'unite:match-1:1:3' }), null);
+  for (const voteId of ['', 'bad id', 'a'.repeat(65), null, 3]) {
+    assert.notEqual(validateC2S({ ...voteMsg, voteId }), null);
+  }
 });
 
 for (const clientCombat of [false, true]) {
@@ -31,7 +35,7 @@ for (const clientCombat of [false, true]) {
       assert.equal(m.publicView().unite.skipVote.eligible.length, humans);
       for (let i = 0; i < needed; i++) {
         assert.deepEqual(m.handle(`p_${i}`, voteMsg), { ok: true });
-        assert.equal(m.unitePlan.skipSecond, i + 1 === needed);
+        assert.equal(m.unitePlan.skipRemaining, i + 1 === needed);
         m.handle(`p_${i}`, voteMsg);
         assert.equal(m.publicView().unite.skipVote.voters.length, i + 1, 'duplicate vote does not add a ballot');
       }
@@ -59,9 +63,9 @@ test('eliminated humans vote; AI, spectators, offline and autoplay seats cannot'
   assert.equal(m.handle('viewer', voteMsg).error, ERR.SPECTATOR);
   for (const pid of ['p_1', 'p_2']) assert.equal(m.handle(pid, voteMsg).error, ERR.BAD_TARGET);
   assert.deepEqual(m.handle('p_3', voteMsg), { ok: true });
-  assert.equal(m.unitePlan.skipSecond, false);
+  assert.equal(m.unitePlan.skipRemaining, false);
   m.handle('p_0', voteMsg);
-  assert.equal(m.unitePlan.skipSecond, true);
+  assert.equal(m.unitePlan.skipRemaining, true);
   m.dispose();
 });
 
@@ -89,11 +93,11 @@ test('a smaller electorate can approve existing votes; approval stays latched af
   const h = voteMatch({ humans: 4 });
   const m = h.m;
   m.handle('p_0', voteMsg); m.handle('p_1', voteMsg);
-  assert.equal(m.unitePlan.skipSecond, false);
+  assert.equal(m.unitePlan.skipRemaining, false);
   m.onDisconnect('p_2');
-  assert.equal(m.unitePlan.skipSecond, true, 'two of the three eligible humans agree');
+  assert.equal(m.unitePlan.skipRemaining, true, 'two of the three eligible humans agree');
   m.onReconnect('p_2');
-  assert.equal(m.unitePlan.skipSecond, true);
+  assert.equal(m.unitePlan.skipRemaining, true);
   m.dispose();
 });
 
@@ -108,7 +112,7 @@ test('insufficient votes keep the second wave and votes never carry into another
   assert.equal(m.handle('p_0', voteMsg).error, ERR.WRONG_PHASE);
   h.drive(() => m.phase === PHASE.UNITE && m.unitePlan.round === 1);
   assert.deepEqual(m.publicView().unite.skipVote.voters, []);
-  assert.equal(m.unitePlan.skipSecond, false);
+  assert.equal(m.unitePlan.skipRemaining, false);
   m.dispose();
 });
 
@@ -130,10 +134,62 @@ test('zero eligible humans never approve a skip automatically', () => {
   const m = h.m;
   m.handle('p_0', { t: 'g.autoplay', on: true });
   assert.deepEqual(m.publicView().unite.skipVote.eligible, []);
-  assert.equal(m.unitePlan.skipSecond, false);
+  assert.equal(m.unitePlan.skipRemaining, false);
   m.handle('p_0', { t: 'g.autoplay', on: false });
   assert.equal(m.publicView().unite.skipVote.needed, 1);
   m.handle('p_0', voteMsg);
-  assert.equal(m.unitePlan.skipSecond, true);
+  assert.equal(m.unitePlan.skipRemaining, true);
   m.dispose();
+});
+
+for (const clientCombat of [false, true]) {
+  for (const skipAt of [2, 4]) {
+    test(`${clientCombat ? 'client' : 'server'} five-wave plan: fresh ballots can skip all later waves after wave ${skipAt}`, () => {
+      const h = voteMatch({ humans: 3, bots: 17, clientCombat });
+      const m = h.m;
+      try {
+        assert.equal(m.unitePlan.roundsMax, 5);
+        const oldId = m.publicView().unite.skipVote.id;
+        assert.deepEqual(m.handle('p_0', { ...voteMsg, voteId: oldId }), { ok: true });
+        assert.equal(m.unitePlan.skipRemaining, false);
+        assert.ok(h.drive(() => m.phase === PHASE.UNITE && m.unitePlan.round === skipAt));
+        const vote = m.publicView().unite.skipVote;
+        assert.notEqual(vote.id, oldId);
+        assert.deepEqual(vote.voters, [], 'votes reset rather than accumulating over waves');
+        assert.equal(m.handle('p_1', { ...voteMsg, voteId: oldId }).error, ERR.WRONG_PHASE);
+        assert.deepEqual(m.publicView().unite.skipVote.voters, [], 'a delayed request cannot vote in a later wave');
+        assert.deepEqual(m.handle('p_0', { ...voteMsg, voteId: vote.id }), { ok: true });
+        assert.equal(m.unitePlan.skipRemaining, false);
+        assert.deepEqual(m.handle('p_1', { ...voteMsg, voteId: vote.id }), { ok: true });
+        assert.equal(m.unitePlan.skipRemaining, true);
+        assert.equal(m.phase, PHASE.UNITE);
+        assert.equal(m.fields[0].live, true, 'approval does not interrupt the current battle');
+        assert.ok(h.drive(() => m.phase === PHASE.SETTLE));
+        assert.equal(m.unitePlan.round, skipAt);
+        assert.equal(new Set(FakeBattle.instances.filter((b) => b.kind === 'unite').map((b) => b.opts.seed)).size, skipAt);
+        assert.equal(h.ps('p_0').stats.lpLost, 3);
+        const helpers = m.publicView().uniteResult.helpers;
+        assert.equal(helpers.length, 2 * skipAt);
+        for (const pid of helpers.filter((_, i) => i % 2 === 0)) assert.equal(h.ps(pid).pendingFunds, 5);
+        assert.match(h.bc.filter((entry) => entry.t === 'm.ticker').map((entry) => entry.text).join('\n'),
+          /本轮结束后跳过后续全部联防/);
+        h.invariants();
+      } finally { m.dispose(); }
+    });
+  }
+}
+
+test('no eligible reserve helpers means no remaining-wave vote; a later game round has a new vote identity', () => {
+  const h = voteMatch({ humans: 3, bots: 17 });
+  const m = h.m;
+  try {
+    const oldId = m.publicView().unite.skipVote.id;
+    h.toPrep(2);
+    assert.ok(h.drive(() => m.phase === PHASE.UNITE && m.unitePlan.round === 1));
+    assert.notEqual(m.publicView().unite.skipVote.id, oldId);
+    assert.equal(m.handle('p_0', { ...voteMsg, voteId: oldId }).error, ERR.WRONG_PHASE);
+    for (const ps of m.unitePlan.reserveHelpers) ps.left = true;
+    assert.equal(m.publicView().unite.skipVote, null);
+    assert.equal(m.handle('p_0', voteMsg).error, ERR.WRONG_PHASE);
+  } finally { m.dispose(); }
 });
