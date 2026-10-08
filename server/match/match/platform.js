@@ -81,7 +81,7 @@ export class MatchPlatform {
     if (!ps || ps.isBot || this.disposed) return;
     this.guard(() => {
       ps.connected = false;
-      this.refreshDraftPriority();
+      this.refreshDraftPriority(playerId);
       this.refreshUniteSkipVote();
       // a paused solo battle resumes (the server takes the field over; nobody is left to resume it)
       this._resume();
@@ -96,7 +96,7 @@ export class MatchPlatform {
     this.guard(() => {
       const was = ps.connected;
       ps.connected = true;
-      this.refreshDraftPriority();
+      this.refreshDraftPriority(playerId);
       this.refreshUniteSkipVote();
       this._resync(ps);
       if (!was) this.markPublic();
@@ -162,10 +162,12 @@ export class MatchPlatform {
     const d = this.draft;
     if (phase === PHASE.BAND_DRAFT && d && !d.picks[ps.playerId]) {
       // the departed seat passes its turn with the default band (never one a teammate holds — defaultBand)
-      const turn = this.draftTurn() === ps.playerId;
+      const group = this.draftGroup(ps.playerId);
+      const turn = this.draftTurn(ps.playerId) === ps.playerId;
       d.picks[ps.playerId] = this.defaultBand(ps.playerId);
+      if (group) group.picks[ps.playerId] = d.picks[ps.playerId];
       ps.bandId = d.picks[ps.playerId];
-      if (turn) this.startDraftTurn();
+      if (turn) this.startDraftTurn(group);
     }
     const passedRound = phase === PHASE.SETTLE ? this.round + 1 : Math.max(1, this.round);
     const leavingBossLayers = phase === PHASE.FINAL_ASSAULT ? ps.activatedLayers() : 0;
@@ -204,7 +206,7 @@ export class MatchPlatform {
       this.finish({ victory: false, reason: 'eliminated' });
       return;
     }
-    if (phase === PHASE.SP_DRAFT && this.sp && this.spTurn() === ps.playerId) this.startSpTurn();
+    if (phase === PHASE.SP_DRAFT && this.sp && this.spTurn(ps.playerId) === ps.playerId) this.startSpTurn(this.spGroup(ps.playerId));
     else if (phase === PHASE.PREP) this.maybeEndPrep();
   }
 

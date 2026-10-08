@@ -18,6 +18,17 @@ test('capacity and high seat/card indexes are bounded at the protocol boundary',
   assert.notEqual(validateC2S({ t: 'g.choice', idx: MAX_DRAFT_CARDS }), null);
 });
 
+test('group draft requests validate optional stage and group guards while preserving legacy shapes', () => {
+  for (const msg of [{ t: 'g.band', bandId: 'band_sarkazb' }, { t: 'g.bandSkip' },
+    { t: 'g.bandFocus', bandId: null }, { t: 'g.choice', idx: 5 }]) {
+    assert.equal(validateC2S(msg), null);
+    assert.equal(validateC2S({ ...msg, draftId: 'sp:m_123:3:2', groupId: 5 }), null);
+    for (const groupId of [0, 6, 1.5, '1', null]) assert.notEqual(validateC2S({ ...msg, groupId }), null);
+    for (const draftId of ['', 'bad id', 'a'.repeat(65), 1, null]) assert.notEqual(validateC2S({ ...msg, draftId }), null);
+  }
+  assert.notEqual(validateC2S({ t: 'g.choice', idx: 6, groupId: 1 }), null);
+});
+
 test('default eight seats, host resizing, occupied trailing seats and a full twenty-seat room', async () => {
   const clients = [];
   const srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, MatchClass: StubMatch });

@@ -25,6 +25,10 @@ const isMap = (v, max, key, val) => {
 };
 const isList = (v, max, item) => Array.isArray(v) && v.length <= max && v.every(item);
 
+// A viewed group never grants authority: Match derives the player's own group, then checks these optional guards.
+const draftScope = { draftId: isId, groupId: (v) => isInt(v, 1, 5) };
+const draftScopeOptional = ['draftId', 'groupId'];
+
 // ---- client-side combat (DESIGN §14): b.progress / b.result payloads -------------------------------------------
 
 /** Size limits of a b.result payload (the whole frame also obeys the 64 KB inbound limit). */
@@ -348,11 +352,11 @@ export const C2S = {
 
   // match
   'g.infoReady': {},
-  'g.band': { bandId: isId },
-  'g.bandSkip': {},
+  'g.band': { bandId: isId, ...draftScope, $optional: draftScopeOptional },
+  'g.bandSkip': { ...draftScope, $optional: draftScopeOptional },
   // the strategy highlighted in the draft screen (user playtest #4 item 4): a turn that runs out takes it while it is
   // free (Match.timeoutBand); absent / null clears it
-  'g.bandFocus': { bandId: nullable(isId), $optional: ['bandId'] },
+  'g.bandFocus': { bandId: nullable(isId), ...draftScope, $optional: ['bandId', ...draftScopeOptional] },
   'g.buy': { slot: (v) => isInt(v, 0, 15) },
   'g.refresh': {},
   'g.freeze': {},
@@ -366,7 +370,7 @@ export const C2S = {
   'g.art': { itemUid: isUid, row: (v) => isInt(v, 0, GEO.ROWS - 1), col: (v) => isInt(v, 0, GEO.COLS - 1), dir: isDir, $optional: ['dir'] },
   'g.destroy': { uid: isUid },
   'g.reward': { idx: (v) => isInt(v, 0, 5) },
-  'g.choice': { idx: (v) => isInt(v, 0, MAX_DRAFT_CARDS - 1) },
+  'g.choice': { idx: (v) => isInt(v, 0, MAX_DRAFT_CARDS - 1), ...draftScope, $optional: draftScopeOptional },
   'g.ready': { ready: isBool },
   'g.emote': { id: (v) => EMOTES.includes(v) },
   // playerId: the player tapped in the team panel (a 联防 / boss pair field shows two) — what an eliminated viewer or a

@@ -3,7 +3,7 @@
 //   const h = makeMatch({ mode: 'coop', difficulty: 'NORMAL', humans: 1, bots: 1, seed: 7, fake: true });
 //   h.start(); h.runToPhase('PREP'); const ps = h.ps('p_0'); …; h.invariants();
 //
-// Options: mode, difficulty, humans (count) | seats (explicit), bots, spectators (spectator seat ids, opts.spectators),
+// Options: mode, modeId (an explicit data mode, e.g. training), difficulty, humans (count) | seats (explicit), bots, spectators (spectator seat ids, opts.spectators),
 // seed, matchNo (the room's match number: part of the battleId prefix), data (default: real data/*.json),
 // fake (true → test/match/fakeBattle.js as BattleClass), script (FakeBattle.script), registry, instant (virtual
 // scheduler runs battles synchronously; default true), timerScale, battleContent, botRehearsal (default 0),
@@ -55,7 +55,7 @@ export function makeMatch(o = {}) {
     if (o.script) FakeBattle.script = o.script;
   }
   h.m = new Match({
-    roomCode: 'TEST', mode, difficulty, seats, spectators: o.spectators, seed: o.seed ?? 1, matchNo: o.matchNo, data: o.data ?? DATA, log,
+    roomCode: 'TEST', mode, modeId: o.modeId, difficulty, seats, spectators: o.spectators, seed: o.seed ?? 1, matchNo: o.matchNo, data: o.data ?? DATA, log,
     send: (id, msg) => {
       for (const fn of h.onSend) fn(id, msg);
       if (msg.t === 'b.snap' || msg.t === 'b.ev') { h.frames++; if (!captureFrames) return true; }
@@ -116,9 +116,13 @@ export function makeMatch(o = {}) {
       for (const ps of m.players.values()) {
         if (ps.isBot || ps.left) continue;
         if (m.phase === 'INFO_CHECK' && !ps.infoReady) m.handle(ps.playerId, { t: 'g.infoReady' });
-        if (m.phase === 'BAND_DRAFT' && m.draftTurn() === ps.playerId) m.handle(ps.playerId, { t: 'g.band', bandId: band });
-        if (m.phase === 'SP_DRAFT' && m.spTurn() === ps.playerId) {
-          const idx = m.sp.cards.map((c) => c.idx).find((k) => m.sp.taken[k] == null);
+        if (m.phase === 'BAND_DRAFT' && m.draftTurn(ps.playerId) === ps.playerId) {
+          const bandId = m.bandTaken(band, ps.playerId) ? m.defaultBand(ps.playerId) : band;
+          m.handle(ps.playerId, { t: 'g.band', bandId });
+        }
+        if (m.phase === 'SP_DRAFT' && m.spTurn(ps.playerId) === ps.playerId) {
+          const group = m.spGroup(ps.playerId);
+          const idx = group.cards.map((c) => c.idx).find((k) => group.taken[k] == null);
           if (idx != null) m.handle(ps.playerId, { t: 'g.choice', idx });
         }
         if (ready && m.phase === 'PREP' && ps.alive && !ps.ready) {

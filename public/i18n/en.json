@@ -1079,5 +1079,13 @@
   "同盟表情": "Alliance Emotes",
   "{name}发送表情": "{name} sent an emote",
   "投票通过：第一轮联防结束后跳过第二轮，按剩余漏怪结算": "Vote approved: skip the second Unite wave after the first ends, then settle the remaining leaks",
-  "{group}组 · 同组共享卡池": "Group {group} · Shared Operator pool"
+  "{group}组 · 同组共享卡池": "Group {group} · Shared Operator pool",
+  "{group}组已选择": "Group {group} has chosen",
+  "该组已完成选择": "This group has finished choosing",
+  "本组已完成，等待其他组": "Your group has finished; waiting for the other groups",
+  "分组选择": "Group choices",
+  "{group}组": "Group {group}",
+  "（本组）": " (your group)",
+  "正在查看{group}组，只有本组成员可以选择": "Viewing Group {group}; only its members can choose",
+  "返回本组": "Return to your group"
 }

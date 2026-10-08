@@ -65,7 +65,7 @@ test('band draft (co-op): random order, one pick per turn, NOT_YOUR_TURN, one sk
   m.dispose();
 });
 
-test('band draft: manual players pick before AI even across interleaved seats; skip stays ahead of AI', () => {
+test('band draft: manual players precede AI within interleaved fixed groups; skip remains in its group', () => {
   const seats = ['ai_0', 'p_0', 'ai_1', 'p_1', 'p_2', 'ai_2'].map((playerId, seat) => ({
     seat, playerId, name: playerId, isBot: playerId.startsWith('ai_'), connected: true,
   }));
@@ -74,16 +74,20 @@ test('band draft: manual players pick before AI even across interleaved seats; s
   for (const pid of ['p_0', 'p_1', 'p_2']) m.handle(pid, { t: 'g.infoReady' });
   h.sched.advance(1);
   assert.equal(m.phase, PHASE.BAND_DRAFT);
-  const [first, second, third] = m.draft.order;
-  assert.deepEqual(m.draft.order.slice(0, 3).slice().sort(), ['p_0', 'p_1', 'p_2']);
-  assert.deepEqual(m.draft.order.slice(3).slice().sort(), ['ai_0', 'ai_1', 'ai_2']);
+  const [a, b] = m.draft.groups;
+  assert.equal(a.order[0], 'p_0');
+  assert.deepEqual(a.order.slice(1).slice().sort(), ['ai_0', 'ai_1']);
+  assert.deepEqual(b.order.slice(0, 2).slice().sort(), ['p_1', 'p_2']);
+  assert.equal(b.order[2], 'ai_2');
+  assert.equal(m.handle('p_0', { t: 'g.bandSkip' }).error, ERR.BAD_TARGET, 'cannot pass a turn to another group');
+  const [first, second] = b.order;
   assert.deepEqual(m.handle(first, { t: 'g.bandSkip' }), { ok: true });
-  assert.deepEqual(m.draft.order.slice(0, 3), [second, third, first]);
-  assert.deepEqual(m.draft.order.slice(3).slice().sort(), ['ai_0', 'ai_1', 'ai_2']);
-  for (const [pid, bandId] of [[second, 'band_amiya'], [third, 'band_lisa'], [first, 'band_sarkazb']]) {
+  assert.deepEqual(b.order, [second, first, 'ai_2']);
+  assert.equal(m.draftTurn('p_0'), 'p_0', 'the other group retains its current picker');
+  for (const [pid, bandId] of [['p_0', 'band_amiya'], [second, 'band_amiya'], [first, 'band_sarkazb']]) {
     assert.deepEqual(m.handle(pid, { t: 'g.band', bandId }), { ok: true });
   }
-  assert.equal(Object.keys(m.draft.picks).length, 3, 'AI has not picked before the last manual player');
+  assert.equal(Object.keys(m.draft.picks).length, 3, 'each group resolves its pending AI after its own manual picks');
   h.sched.advance(1);
   assert.equal(m.phase, PHASE.BATTLE_CHECK);
   assert.equal(Object.keys(m.draft.picks).length, 6);

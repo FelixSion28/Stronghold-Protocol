@@ -2,8 +2,8 @@
 // data/choices.json).
 //
 // Generation (generateDraft): the family is a weighted pick from choices.schedule[modeId].rounds[r].families; the card
-// count is `cards` (co-op max(6, living players + 2), capped at 22; solo 3):
-//   bounty  悬赏决策  six distinct cards.bounty entries (solo: 3 of them); larger co-op drafts repeat that six-card mix
+// count is `cards` (co-op six per fixed group, solo 3; training 6):
+//   bounty  悬赏决策  six distinct cards.bounty entries (solo: 3 of them), built like the official draft of the round
 //                     (`bountyDraftCards`; player feedback after 0.1.0, report #2 — late bounty enemies in the early
 //                     drafts; 66 official screenshots of 22 matches, tools/build-data.mjs BOUNTY_INITIAL_SETS): schedule
 //                     `bountyDraft` names the kind and choices.json `bountyDrafts[kind]` its card lists — the event is a
@@ -63,7 +63,6 @@
 
 import { weightedPick } from './waves.js';
 import { MAX_DRAFT_CARDS } from '../../shared/constants.js';
-import { coopDraftCardCount } from '../../shared/playerCapacity.js';
 
 export const FAMILY_NAMES = { bounty: '悬赏决策', supply: '道具补给', shop: '机密商店', tactic: '战术决策' }; // i18n-ignore: = choices.json families (the client shows the localized record)
 
@@ -135,15 +134,24 @@ function itemCard(gd, id) {
 }
 
 /**
- * Build the draft cards for an SP round.
- * @returns {{ family: string, name: string, desc: string, eventId: string|null, cards: object[] } | null}
+ * Select an event family with the round's original schedule weights, without generating its cards.
  */
-export function generateDraft(gd, rng, round, { stageId = null, bondAvailable = null, playerCount = 4 } = {}) {
+export function selectDraftFamily(gd, rng, round) {
   const sch = scheduleFor(gd, round);
   const fams = Array.isArray(sch.families) && sch.families.length ? sch.families.map((f) => [f.family, f.weight]) : [['supply', 1]];
-  let family = weightedPick(rng, fams) || 'supply';
+  return weightedPick(rng, fams) || 'supply';
+}
+
+/**
+ * Build the draft cards for an SP round.
+ * A supplied family bypasses the event roll; each call still draws a fresh page with the original card rules.
+ * @returns {{ family: string, name: string, desc: string, eventId: string|null, cards: object[] } | null}
+ */
+export function generateDraft(gd, rng, round, { stageId = null, bondAvailable = null, family: forcedFamily = null } = {}) {
+  const sch = scheduleFor(gd, round);
+  let family = forcedFamily ?? selectDraftFamily(gd, rng, round);
   const scheduled = Number.isInteger(sch.cards) && sch.cards > 0 ? sch.cards : formatCount(gd);
-  const n = Math.min(MAX_DRAFT_CARDS, gd.isSolo ? scheduled : Math.max(scheduled, coopDraftCardCount(playerCount)));
+  const n = gd.isSolo ? Math.min(MAX_DRAFT_CARDS, scheduled) : MAX_DRAFT_CARDS;
   const opts = { stageId, bondAvailable, round };
   let cards = buildCards(gd, rng, family, n, sch, opts);
   if (!cards.length && family !== 'supply') { family = 'supply'; cards = buildCards(gd, rng, family, n, sch, opts); }
@@ -153,6 +161,29 @@ export function generateDraft(gd, rng, round, { stageId = null, bondAvailable = 
   const events = sch.events && Array.isArray(sch.events[family]) ? sch.events[family] : [];
   const eventId = events.length ? events[Math.floor(rng() * events.length)] : null;
   return { family, name: famInfo && famInfo.name ? famInfo.name : FAMILY_NAMES[family] || family, desc: famInfo && famInfo.desc ? famInfo.desc : '', eventId, cards };
+}
+
+/**
+ * Generate independent pages for the supplied active fixed groups, preserving their order and IDs.
+ * The whole match rolls its event family once; each group draws its cards independently with the original rules.
+ * Naturally identical pages are allowed, as are single-card overlaps and repeated positions within a page.
+ * `bondAvailable(bondId, group)` retains the caller's availability rules for that page.
+ * @returns {Array<{id: number, family: string, name: string, desc: string, eventId: string|null, cards: object[]}> | null}
+ */
+export function generateGroupDrafts(gd, rng, round, groups, { stageId = null, bondAvailable = null } = {}) {
+  if (!groups.length) return [];
+  const family = selectDraftFamily(gd, rng, round);
+  const drafts = [];
+  for (const group of groups) {
+    const draft = generateDraft(gd, rng, round, {
+      family,
+      stageId,
+      bondAvailable: typeof bondAvailable === 'function' ? (bondId) => bondAvailable(bondId, group) : null,
+    });
+    if (!draft) return null;
+    drafts.push({ id: group.id, ...draft });
+  }
+  return drafts;
 }
 
 /** Bond granted by a 驰援 tactic card (effect buff single_special_choice_gain_bond_chess), else null. */
@@ -319,13 +350,9 @@ function bountyDraftCards(gd, rng, n, sch, round) {
   const eligible = all.filter((c) => c && draftBounty(c, kind) && gd.enemy(c.enemyKey));
   const byId = new Map(eligible.map((c) => [c.effectId, c]));
   const spec = gd.choices.bountyDrafts && gd.choices.bountyDrafts[kind];
-  const out = spec ? structuredBounty(rng, kind, spec, byId).slice(0, 6) : [];
+  const out = spec ? structuredBounty(rng, kind, spec, byId) : [];
   const taken = new Set(out);
-  const baseCount = Math.min(n, 6);
-  if (out.length < baseCount) out.push(...drawDistinct(rng, eligible, baseCount - out.length, taken));
-  // Every six cards retain the event's original strength mix; extra seats receive another shuffled copy of it.
-  const base = out.slice();
-  while (n > 6 && base.length && out.length < n) out.push(...rng.shuffle(base.slice()).slice(0, n - out.length));
+  if (out.length < n) out.push(...drawDistinct(rng, eligible, n - out.length, taken));
   return rng.shuffle(out).slice(0, n).map((c) => bountyCard(gd, c));
 }
 
@@ -347,8 +374,7 @@ export function shopDraftCards(gd, rng, n, round = null) {
     return eligibleItems(gd, 1, 6);
   };
   const out = [];
-  for (let i = 0; i < Math.max(n, slots.length); i++) {
-    const slot = slots[i % slots.length];
+  for (const slot of slots) {
     const kinds = Object.entries(slot).filter(([k]) => k === 'coin' ? !!coin : Number.isInteger(Number(k)));
     const kind = weightedPick(rng, kinds);
     if (kind == null) continue;

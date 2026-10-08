@@ -1,16 +1,13 @@
 // Capacity rules shared by the server and browser. See docs/PLAYER_CAPACITY.md for the fork's rules.
 import { BASE_SEATS, MAX_SEATS, MAX_DRAFT_CARDS } from './constants.js';
 
-export const MIN_COOP_DRAFT_CARDS = 6;
-export const DRAFT_SPARE_CARDS = 2;
+export const MIN_COOP_DRAFT_CARDS = MAX_DRAFT_CARDS;
 export const GROUPED_POOL_MIN_PLAYERS = 6;
 export const SECOND_UNITE_MIN_PLAYERS = 8;
 export const MAX_UNITE_HELPERS = 4;
 
-/** Count the living participants of this draft, never empty room slots or spectator seats. */
-export function coopDraftCardCount(players) {
-  return Math.min(MAX_DRAFT_CARDS, Math.max(MIN_COOP_DRAFT_CARDS, Math.trunc(players || 0) + DRAFT_SPARE_CARDS));
-}
+/** Each fixed co-op group has its own six-card page, independent of room or living-player count. */
+export function coopDraftCardCount() { return MIN_COOP_DRAFT_CARDS; }
 
 // User-approved seat-ordered groups. Return a copy so callers cannot alter later matches.
 const POOL_GROUP_LAYOUTS = {

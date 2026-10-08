@@ -244,6 +244,7 @@ describe('UI: timeoutBand (the tip names what a timeout gives me)', () => {
     const [a, b, c, d] = m.draft.order;
     for (const picks of [[], ['band_bldsk'], ['band_bldsk', 'band_amiya'], ['band_amiya', 'band_duyaoy'], ['band_bldsk', 'band_amiya', 'band_duyaoy']]) {
       m.draft.picks = Object.fromEntries(picks.map((id, i) => [[a, b, c][i], id]));
+      if (m.draft.groups?.length) m.draft.groups[0].picks = m.draft.picks;
       const taken = teammateBands(new Map(Object.entries(m.draft.picks)), d);
       assert.equal(timeoutBand(all, taken), m.defaultBand(d), `picks ${picks}`);
     }

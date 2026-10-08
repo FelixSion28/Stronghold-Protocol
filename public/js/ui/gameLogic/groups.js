@@ -4,25 +4,39 @@ import { sortedPlayers } from './shared.js';
 
 export const POOL_GROUP_COLORS = ['#83b8ee', '#b69ddd', '#d8b96d', '#81cbce', '#dda4c2'];
 
+/** One fixed group identity, independent of its current members or display position. */
+export function poolGroupIdentity(id) {
+  if (!Number.isInteger(id) || id < 1 || id > POOL_GROUP_COLORS.length) return null;
+  return { id, label: String.fromCharCode(64 + id), color: POOL_GROUP_COLORS[id - 1] };
+}
+
+/** Authoritative groups, including a single group whose player-list decoration is hidden. */
+export function poolGroups(pub) {
+  const groups = new Map();
+  for (const g of Array.isArray(pub?.poolGroups) ? pub.poolGroups : []) {
+    const identity = poolGroupIdentity(g?.id);
+    if (!identity || groups.has(identity.id) || !Array.isArray(g.playerIds)) continue;
+    const playerIds = [...new Set(g.playerIds.filter((id) => typeof id === 'string' && id))];
+    if (!playerIds.length) continue;
+    groups.set(identity.id, { ...identity, playerIds });
+  }
+  return [...groups.values()].sort((a, b) => a.id - b.id);
+}
+
+/** Membership stays fixed after death, leaving, disconnection, and AI takeover. */
+export function playerPoolGroup(pub, playerId) {
+  return poolGroups(pub).find((group) => group.playerIds.includes(playerId)) || null;
+}
+
 /**
  * Contiguous sections in occupied-seat order. Only m.public.poolGroups supplies membership;
  * missing metadata and a single pool keep the undecorated player list.
  */
 export function poolGroupSections(pub) {
-  const groups = new Map();
-  for (const g of Array.isArray(pub?.poolGroups) ? pub.poolGroups : []) {
-    if (!Number.isInteger(g?.id) || g.id < 1 || g.id > POOL_GROUP_COLORS.length
-      || !Array.isArray(g.playerIds) || !g.playerIds.length || groups.has(g.id)) continue;
-    groups.set(g.id, {
-      id: g.id,
-      label: String.fromCharCode(64 + g.id),
-      color: POOL_GROUP_COLORS[g.id - 1],
-      playerIds: g.playerIds.slice(),
-    });
-  }
+  const groups = poolGroups(pub);
   const byPlayer = new Map();
-  if (groups.size > 1) {
-    for (const group of groups.values()) {
+  if (groups.length > 1) {
+    for (const group of groups) {
       for (const id of group.playerIds) if (!byPlayer.has(id)) byPlayer.set(id, group);
     }
   }

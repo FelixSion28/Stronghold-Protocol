@@ -101,8 +101,8 @@
 // result — _uniteLeft) and pendingLp = min(lpCapPerRound, uniteLeft): the counter falls as the helpers kill them (and
 // rises when one of them splits or summons — the children are billed to the same leaker).
 // User playtest #4: a match with a single human (独立模拟, or a 同盟 room started alone / with AI teammates) times no
-// phase outside its battles (soloUntimed); the co-op strategy draft has ONE countdown — BAND_TURN_SECONDS per turn,
-// published as m.public.deadline — AI seats pick at once and a turn that runs out takes the highlighted strategy
+// phase outside its battles (soloUntimed); each fixed-pool strategy draft group has its own BAND_TURN_SECONDS clock,
+// published in m.public.draft.groups (single-group deadline stays compatible) — AI seats pick at once and a turn that runs out takes the highlighted strategy
 // (g.bandFocus → timeoutBand); g.unitStats answers m.unitStats: the stats the board's units start their next battle with.
 //   opts.clientCombat  default true (env SP_COMBAT=server → false: the legacy server-run + snapshot streaming mode)
 //   opts.verify        'off' | 'sample' | 'all' (env SP_VERIFY, default 'off'): re-simulate accepted client results
@@ -336,6 +336,7 @@ export class Match {
     /** Final Assault / Hidden Core: ms epoch when the overtime drain starts (m.public.overtimeAt) */
     this.overtimeAt = 0;
     this.uidSeq = 0;
+    this.draftSeq = 0;
     this.ended = false;
     this.disposed = false;
     this.startedAt = this.sched.now();

@@ -16,10 +16,10 @@ export class MatchIntents {
         if (this.phase !== PHASE.INFO_CHECK) return fail(ERR.WRONG_PHASE);
         if (!ps.infoReady) { ps.infoReady = true; this.markPublic(); this.maybeEndInfo(); }
         return OK;
-      case 'g.band': return this.pickBand(ps, msg.bandId);
-      case 'g.bandSkip': return this.skipBand(ps);
+      case 'g.band': return this.pickBand(ps, msg.bandId, msg);
+      case 'g.bandSkip': return this.skipBand(ps, msg);
       // the strategy highlighted in the draft screen (what a timed-out turn takes, timeoutBand)
-      case 'g.bandFocus': return this.bandFocus(ps, msg.bandId ?? null);
+      case 'g.bandFocus': return this.bandFocus(ps, msg.bandId ?? null, msg);
       case 'g.buy': return ps.buy(msg.slot);
       case 'g.refresh': return ps.refresh();
       case 'g.freeze': return ps.freeze();
@@ -31,7 +31,7 @@ export class MatchIntents {
       case 'g.art': return ps.useArt(msg.itemUid, msg.row, msg.col, msg.dir);
       case 'g.destroy': return ps.destroy(msg.uid);
       case 'g.reward': return ps.pickReward(msg.idx);
-      case 'g.choice': return this.pickCard(ps, msg.idx);
+      case 'g.choice': return this.pickCard(ps, msg.idx, msg);
       case 'g.ready': return ps.setReady(!!msg.ready);
       case 'g.emote': return this.emote(ps, msg.id);
       // playerId: the player tapped (a shared field names two) — the watch preference (item 56)
@@ -61,7 +61,7 @@ export class MatchIntents {
   setAutoplay(ps, on) {
     if (ps.autoplay === on) return OK;
     ps.autoplay = on;
-    this.refreshDraftPriority();
+    this.refreshDraftPriority(ps.playerId);
     this.refreshUniteSkipVote();
     this.markPublic();
     if (on) this.kickBot(ps);
@@ -72,8 +72,8 @@ export class MatchIntents {
   kickBot(ps) {
     if (!ps.botControlled || this.ended) return;
     if (this.phase === PHASE.INFO_CHECK && !ps.infoReady) { ps.infoReady = true; this.markPublic(); this.maybeEndInfo(); }
-    else if (this.phase === PHASE.BAND_DRAFT && this.draftTurn() === ps.playerId) this.scheduleBandBot();
-    else if (this.phase === PHASE.SP_DRAFT && this.spTurn() === ps.playerId) this.scheduleSpBot();
+    else if (this.phase === PHASE.BAND_DRAFT && this.draftTurn(ps.playerId) === ps.playerId) this.scheduleBandBot(this.draftGroup(ps.playerId));
+    else if (this.phase === PHASE.SP_DRAFT && this.spTurn(ps.playerId) === ps.playerId) this.scheduleSpBot(this.spGroup(ps.playerId));
     else if (this.phase === PHASE.PREP && ps.alive && !ps.ready) this.scheduleBotPrep(ps, 0);
   }
 

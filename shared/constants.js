@@ -15,7 +15,8 @@ export const BASE_SEATS = 4;
 export const MAX_SEATS = 20;
 export const DEFAULT_SEATS = 8;
 export const ROOM_CAPACITIES = Object.freeze([4, 8, 10, 16, 20]);
-export const MAX_DRAFT_CARDS = MAX_SEATS + 2;
+/** One independent 机变 page per fixed group; card indexes are local to its six positions. */
+export const MAX_DRAFT_CARDS = 6;
 /**
  * Spectator seats of a co-op room (community report #26, owner's decision 2026-10-04) — a remake feature: the official
  * room has 1–4 players and no spectator seat (there only eliminated players and 联防 bystanders watch, research 09 §3.1).
