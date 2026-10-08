@@ -48,6 +48,10 @@ for (const clientCombat of [false, true]) {
     assert.equal(h.ps('p_1').pendingFunds, 5, 'first-wave bounty credits survive second-wave settlement');
     assert.equal(h.ps('p_3').pendingFunds, 7);
     assert.ok(h.ps('p_1').stats.dmgDealt >= 123 && h.ps('p_3').stats.dmgDealt >= 456);
+    assert.deepEqual(m.publicView().uniteResult, {
+      through: 1, helpers: [...first, ...second], leakers: ['p_0'],
+      losses: Object.fromEntries(m.order.map((p) => [p.playerId, p.playerId === 'p_0' ? 1 : 0])),
+    }, 'the upstream result dialog reports both waves and the actual final LP charge');
     h.invariants();
     m.dispose();
   });

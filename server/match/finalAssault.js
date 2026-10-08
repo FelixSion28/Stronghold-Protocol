@@ -8,13 +8,15 @@
 //     RIGHT side (the sim mirrors the right side: board col c → field col 20 − c with the piece direction RIGHT ↔
 //     LEFT, UP / DOWN unchanged (DESIGN §3, research 09 §1.2 ConvertChessPositionInfoToBossMap); board rows 9–12 →
 //     boss rows 2–5, sim/constants BOSS_ROW_OFFSET). `bossFieldPlacement` gives that mapping for UIs / tools.
-//   * Shared boss HP pool (DESIGN §20.10, GameData.bossPoolShare): one pool shared by every boss field (official tip
-//     "所有人将一起对敌方领袖造成伤害"); co-op = bloodPoint[difficulty] × living players / 4, including larger rooms.
-//     Notice 5114's "敌方领袖的总生命值不变" is about the mirrored copies of a pair field sharing the pool; the generated
-//     data's aliveScaling=false records the earlier fixed-pool decision and is superseded here. Solo = bloodPoint ×
-//     config bossHpScale.solo (0.25,
-//     flagged unknown); × the tuning bossHpMul when data/tuning.json still has one (docs/BALANCE.md); bosses are never
-//     scaled by enemyScale.
+//   * Shared boss HP pool (DESIGN §20.10, §25.13.4, gamedata.js bossPoolShareOf): one pool shared by every boss field
+//     (official tip "所有人将一起对敌方领袖造成伤害"; notice 5114's "敌方领袖的总生命值不变" is about the mirrored copies of
+//     a pair field sharing it) = bloodPoint[difficulty] × the players alive when the fight starts (bots and AI 托管 seats
+//     count, eliminated and departed seats do not; solo × 1) — the owner's decision of 2026-10-06, adopting PR #209 by
+//     @qingjingshenghuo, which replaces the fixed pool of 「保持固定血量」 (config bossHpScale perPlayer false / solo 0.25
+//     restores it); × the tuning bossHpMul when data/tuning.json still has one (docs/BALANCE.md); bosses are never scaled
+//     by enemyScale and their parts / escorts keep their own HP.
+//     This fork extends the count to 20 and rescales the pool when a player leaves mid-fight, preserving its remaining
+//     HP percentage (docs/development/DECISIONS.md D009); disconnecting or enabling autoplay does not remove a seat.
 //   * Overtime: bossTurnHpReduceTime counts REAL seconds like the level's 120 s maxPlayTime (which runs out first; the
 //     battle goes on): from 150 real s (300 game s on the 2× field clock) the team loses bossOvertimeDrainPerSec (1) LP
 //     per real second (gamedata.js bossOvertimeDue); m.public.deadline = the 120 s countdown, m.public.overtimeAt = the
@@ -31,10 +33,11 @@
 //     (player report after 0.1.0: "隐藏boss还没打就出了造成50%伤害播报").
 //   * Hidden Core eligibility (after an R14 win): difficulty in hiddenCore.difficulties, the mode has a hidden round,
 //     Σ activated layers of the alive players measured at the end of the boss round's prep > threshold (solo 350 /
-//     co-op 1200) and team LP > minTeamLpExclusive (1).
+//     co-op 1200 × living players / 4) and team LP > minTeamLpExclusive (1).
 
 import { BOSS_ROW_OFFSET, COLS, BOSS_POOL_MIN_HP } from '../sim/constants.js';
 import { mirrorDir, normDir } from '../sim/dir.js';
+import { bossPoolShareOf } from './gamedata.js';
 import { coopHiddenLayerThreshold } from '../../shared/playerCapacity.js';
 
 /**
@@ -63,7 +66,7 @@ export function pairPlayers(alive) {
   return groups;
 }
 
-/** Shared boss HP for a boss id with `aliveCount` alive players (GameData.bossPoolShare; omitted ⇒ a full team). */
+/** Shared boss HP for a boss id with `aliveCount` alive players (GameData.bossPoolShare / bossPoolShareOf; omitted ⇒ a full team). */
 export function bossPoolHp(gd, bossId, aliveCount) {
   const boss = gd.boss(bossId);
   const diff = gd.difficulty;
@@ -71,16 +74,8 @@ export function bossPoolHp(gd, bossId, aliveCount) {
   if (base == null && boss && boss.bloodPoint) base = Object.values(boss.bloodPoint).find((v) => Number.isFinite(v)) ?? null;
   if (base == null) base = 500000;
   const tune = typeof gd.bossHpMul === 'function' ? gd.bossHpMul(bossId) : 1;
-  let share;
-  if (typeof gd.bossPoolShare === 'function') share = gd.bossPoolShare(aliveCount);
-  else {
-    const scale = gd.mode.bossHpScale && typeof gd.mode.bossHpScale === 'object' ? gd.mode.bossHpScale : {};
-    const cfg = gd.config.bossHpScale && typeof gd.config.bossHpScale === 'object' ? gd.config.bossHpScale : {};
-    const full = Math.max(1, Math.floor(Number(scale.aliveFull ?? cfg.aliveFull) || 4));
-    const alive = Number.isFinite(aliveCount) && aliveCount >= 1 ? Math.floor(aliveCount) : full;
-    share = gd.isSolo ? (Number.isFinite(scale.solo) ? scale.solo : Number.isFinite(cfg.solo) ? cfg.solo : 0.25)
-      : (Number.isFinite(scale.coop) ? scale.coop : Number.isFinite(cfg.coop) ? cfg.coop : 1) * alive / full;
-  }
+  const share = typeof gd.bossPoolShare === 'function' ? gd.bossPoolShare(aliveCount)
+    : bossPoolShareOf(gd.mode && gd.mode.bossHpScale, gd.config && gd.config.bossHpScale, !!gd.isSolo, aliveCount);
   return Math.max(1, Math.round(base * share * tune));
 }
 
@@ -109,7 +104,7 @@ export class SharedBossPool {
     return dealt;
   }
 
-  /** A player left during the fight: preserve the remaining HP percentage at the new team size. */
+  /** Preserve the remaining HP percentage when a player leaves the leader fight. */
   rescale(maxHp) {
     const next = Math.max(1, Math.round(maxHp));
     if (next === this.maxHp) return;
@@ -121,7 +116,7 @@ export class SharedBossPool {
 /**
  * Hidden-core eligibility.
  * @param {import('./gamedata.js').GameData} gd
- * @param {{ layerSum: number, teamLp: number }} s
+ * @param {{ layerSum: number, teamLp: number, playerCount?: number }} s
  */
 export function hiddenEligible(gd, { layerSum, teamLp, playerCount = 4 }) {
   const hc = gd.hiddenCore;

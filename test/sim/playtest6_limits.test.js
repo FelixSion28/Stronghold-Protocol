@@ -377,6 +377,9 @@ test('【死亡集群】 bypasses the attack limit: both real kits remove and cr
   // Capacity adaptation exempts this scripted loss even at the old ceil boundary and the 20-player hidden pool.
   assert.equal(gd.enemy('enemy_9013_acstmk').skills.find((s) => s.prefabKey === '2').bb.hp_ratio, 0.02);
   assert.equal(gd.enemy('enemy_9013_acstmk_2').skills.find((s) => s.prefabKey === '2').bb.hp_ratio, 0.02);
+  const abyss20Pool = new GameData(DATA, 'mode_multi_abyss').bossPoolHp('boss_8', 20);
+  assert.equal(abyss20Pool, 144000000, '20-player ABYSS hidden pool follows bloodPoint × alive');
+  assert.equal(abyss20Pool * 0.02, 2880000, 'each drone removes 2 % of that pool');
   const withOp = [{ ...PAIR[0], units: [{ uid: 1, chessId: 'chess_char_1_01_a', row: 10, col: 2 }] }, PAIR[1]];
   const run = (bossId, poolMax, Pool) => {
     const pool = new Pool(poolMax);
@@ -397,12 +400,22 @@ test('【死亡集群】 bypasses the attack limit: both real kits remove and cr
     assert.equal(L.s.maxHp, poolMax, 'the leader\'s max HP is the pool max');
     const before = pool.hp;
     const beforeCredit = b._pp(op.ownerId).bossDamage;
+    const poolCredit = () => pool.byPlayer instanceof Map ? (pool.byPlayer.get(op.ownerId) || 0) : (pool.byPlayer[op.ownerId] || 0);
+    const beforePoolCredit = poolCredit();
+    const beforeDmg = op.stats.dmg;
+    const beforePlayerDmg = b._pp(op.ownerId).damageDealt;
+    const beforeKills = op.stats.kills;
+    const droneHp = drone.hp;
     const links = [];
     b.on('damaged', (c) => { if (c.dmg?.tags?.includes('boss:droneLink')) links.push(c.amount); });
     b.dealDamage(op, drone, { amount: 1e9, type: 'true', ignoreSleep: true });
     assert.equal(drone.alive, false, 'the drone died');
     assert.deepEqual(links, [poolMax * 0.02]);
     assert.ok(Math.abs(b._pp(op.ownerId).bossDamage - beforeCredit - poolMax * 0.02) < 1e-6, 'credited once to the killing operator');
+    assert.ok(Math.abs(poolCredit() - beforePoolCredit - poolMax * 0.02) < 1e-6, 'the pool credits the same killer once');
+    assert.ok(Math.abs(op.stats.dmg - beforeDmg - droneHp - poolMax * 0.02) < 1e-6, 'unit damage includes the drone and its linked loss once');
+    assert.ok(Math.abs(b._pp(op.ownerId).damageDealt - beforePlayerDmg - droneHp - poolMax * 0.02) < 1e-6, 'player damage includes the drone and its linked loss once');
+    assert.equal(op.stats.kills, beforeKills + 1, 'the drone kill is credited once');
     assert.ok(Math.abs(before - pool.hp - poolMax * 0.02) < 1e-6);
     assert.deepEqual(caps, [], 'the scripted link is not cancelled');
     const hp = pool.hp;
@@ -411,7 +424,7 @@ test('【死亡集群】 bypasses the attack limit: both real kits remove and cr
     assert.equal(pool.hp, hp);
   };
   for (const Pool of [SharedBossPool, LocalBossPool]) for (const bossId of ['boss_1', 'boss_8'])
-    for (const max of [7200000, 14999950, 14999951, 15000000, 18000000, 36000000]) run(bossId, max, Pool);
+    for (const max of [7200000, 14999950, 14999951, 15000000, 18000000, 21600000, 28800000, 36000000, abyss20Pool]) run(bossId, max, Pool);
 });
 
 test('限伤 keeps the sim deterministic: a boss field whose hits cross the line gives the same result digest twice', () => {

@@ -27,21 +27,34 @@ function fakePage(trueAfter) {
   };
 }
 
-test('a wait longer than one slice keeps polling the same predicate until it holds', async () => {
-  // A wall-clock predicate can turn true while Node is busy with other test files, making the call count flaky.
-  // Force three slice timeouts before success so the retry contract is tested independent of scheduling.
+/**
+ * A page whose predicate holds from its `holdsOn`-th waitForFunction call on; each earlier slice times out after its own
+ * timeout, like puppeteer's. Counted in calls, not in wall time: on a loaded machine late timers merge time-based slices
+ * (fakePage(95) with 30 ms slices returned in 3 calls instead of 4 in the 0.2.0 candidate's full pass).
+ */
+function slicedPage(holdsOn) {
   const calls = [];
-  const page = {
+  return {
     calls,
     waitForFunction(fn, opts, ...args) {
       calls.push({ fn, opts, args });
-      return calls.length < 4 ? Promise.reject(timeoutError(opts.timeout)) : Promise.resolve({ handle: 'ok', args });
+      const holds = calls.length >= holdsOn;
+      return new Promise((resolve, reject) => {
+        if (holds) setTimeout(() => resolve({ handle: 'ok', args }), 0);
+        else setTimeout(() => reject(timeoutError(opts.timeout)), opts.timeout);
+      });
     },
   };
+}
+
+test('a wait longer than one slice keeps polling the same predicate until it holds', async () => {
+  const page = slicedPage(4);
   const fn = () => true;
-  const got = await waitForFunctionLong(page, fn, { timeout: 1000, polling: 200, slice: 30 }, 'a', 2);
+  const t0 = Date.now();
+  const got = await waitForFunctionLong(page, fn, { timeout: 60_000, polling: 200, slice: 30 }, 'a', 2);
   assert.deepEqual(got, { handle: 'ok', args: ['a', 2] });
-  assert.equal(page.calls.length, 4, 'three timed-out slices followed by a successful one');
+  assert.equal(page.calls.length, 4, 'three slices ran out, the fourth held, nothing polled after it');
+  assert.ok(Date.now() - t0 >= 85, `the three slices waited their 30 ms each (${Date.now() - t0} ms)`);
   for (const c of page.calls) {
     assert.equal(c.fn, fn);
     assert.deepEqual(c.args, ['a', 2]);

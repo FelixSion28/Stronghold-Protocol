@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeMatch, give } from './harness.js';
+import { DATA, makeMatch, give } from './harness.js';
 import { poolGroupSizes, poolCopyScale } from '../../shared/playerCapacity.js';
+import { makeCtx } from '../../server/match/effectsMeta.js';
 
 for (const [count, sizes] of [[1, [1]], [4, [4]], [5, [5]], [6, [6]], [7, [4, 3]], [8, [4, 4]],
   [9, [3, 3, 3]], [10, [4, 3, 3]], [16, [4, 4, 4, 4]], [20, [4, 4, 4, 4, 4]]]) {
@@ -69,4 +70,60 @@ test('twenty client-combat participants finish a complete match with grouped poo
   assert.deepEqual(h.m.poolGroups.map((g) => g.playerIds.length), [4, 4, 4, 4, 4]);
   h.invariants();
   h.m.dispose();
+});
+
+test('twenty players: buying, merging, selling and eliminating DIY / stand-in pieces preserves the last group and each personal stock', () => {
+  const slotId = 'chess_char_5_diy1_a';
+  const notOwned = Object.values(DATA.chess)
+    .filter((c) => c.visible && !c.isGolden && c.chessType === 'NORMAL' && c.backup)
+    .map((c) => c.chessId);
+  const seats = Array.from({ length: 20 }, (_, seat) => ({
+    seat, playerId: `p_${seat}`, name: `P${seat}`, connected: true, isBot: false,
+    diy: [0, 8, 19].includes(seat) ? { [slotId]: { charId: 'char_609_acguad' } } : null,
+    notOwned: seat === 19 ? notOwned : null,
+  }));
+  const h = makeMatch({ seats, seed: 11, fake: true }).start();
+  h.toPrep(1);
+  const m = h.m;
+  const ps = h.ps('p_19');
+  ps.shop.level = 6;
+  ps.funds = 100;
+  const buy = (id) => {
+    ps.shop.slots[0] = { kind: 'chess', id, basePrice: ps.gd.chessPrice(id), frozen: false, sold: false };
+    assert.deepEqual(m.handle(ps.playerId, { t: 'g.buy', slot: 0 }), { ok: true });
+  };
+  assert.equal(ps.pool, m.poolGroups[4].pool, 'the last seat belongs to the fifth shared pool');
+  for (const group of m.poolGroups) assert.equal(group.pool.has(slotId), false, 'DIY stock never joins a group pool');
+  for (let i = 0; i < 3; i++) buy(slotId);
+  const diyElite = ps.allChess().find((p) => p.id === ps.gd.goldenIdOf(slotId));
+  assert.ok(diyElite);
+  assert.equal(ps.diyStock.left(slotId), 5);
+  assert.equal(h.ps('p_0').diyStock.left(slotId), 8);
+  assert.equal(h.ps('p_8').diyStock.left(slotId), 8);
+  assert.deepEqual(m.handle(ps.playerId, { t: 'g.sell', uid: diyElite.uid }), { ok: true });
+  assert.equal(ps.diyStock.left(slotId), 8);
+
+  const id = [...ps.pool.entries.keys()].find((id) => ps.fieldsStandIn(id)
+    && ps.pool.left(id) >= 3 && !ps.allChess().some((p) => ps.gd.baseIdOf(p.id) === id));
+  assert.ok(id, 'an unowned operator with three free copies in the fifth group');
+  const before = m.poolGroups.map((g) => g.pool.left(id));
+  for (let i = 0; i < 3; i++) buy(id);
+  const standInElite = ps.allChess().find((p) => p.id === ps.gd.goldenIdOf(id));
+  assert.ok(standInElite && ps.fieldsStandIn(standInElite.id));
+  assert.deepEqual(m.poolGroups.map((g) => g.pool.left(id)), before.map((n, i) => n - (i === 4 ? 3 : 0)));
+  assert.deepEqual(m.handle(ps.playerId, { t: 'g.sell', uid: standInElite.uid }), { ok: true });
+  assert.deepEqual(m.poolGroups.map((g) => g.pool.left(id)), before);
+
+  const ctx = makeCtx(m, ps, { key: 'test' }, 'onTest');
+  assert.ok(ctx.grantChess(slotId));
+  assert.equal(ps.diyStock.left(slotId), 7, 'effect grants take the receiver\'s private stock');
+  assert.ok(ctx.grantChess(id));
+  assert.equal(ps.pool.left(id), before[4] - 1, 'stand-in still spends the original operator\'s group copy');
+  h.invariants();
+  ps.eliminate(1);
+  assert.equal(ps.diyStock.left(slotId), 8);
+  assert.deepEqual(m.poolGroups.map((g) => g.pool.left(id)), before);
+  h.invariants();
+  assert.equal(m.errorCount, 0);
+  m.dispose();
 });
