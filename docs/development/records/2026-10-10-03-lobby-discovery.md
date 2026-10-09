@@ -9,7 +9,7 @@
 | 类型 | 功能 |
 | 分支与开始 HEAD | `feat/IncreasePlayerCapacity`，`ae7ce89`；开始时工作区干净 |
 | 上游基线 | 已合并 v0.2.2，`62eb113419123d9a3a63606107bbf85230c5dd2f`；本次不访问远程 |
-| 提交归属 | 后端 `8490d0f`；界面与本文收尾同一提交，按记录路径查询 |
+| 提交归属 | 后端 `8490d0f`；界面与文档 `23dea17`，按记录路径查询 |
 | 关联 | [D017](../DECISIONS.md#d017)、[前次单 IP 限速](2026-10-10-02-asset-cache-ip-limit.md) |
 
 ## 需求、范围与验收
@@ -38,7 +38,6 @@
 | `shared/protocol.js`、`server/net.js` | watch / quickMatch 协议，带 rid 的视图回复，分页请求重限流 | 首次视图与旧响应可区分；关闭列表及取消订阅不受重请求额度阻碍 |
 | 分页收缩修复 | 响应和各订阅者同时归一到有效页 | 审查发现 51→50→51 房间变化会使双方页码不同；双订阅者回归已覆盖 |
 | 取消订阅限流修复 | 仅打开列表的 watch 消耗 heavy 额度，摘要/关闭仍经过普通消息限流 | 审查发现快速刷新耗尽额度后返回标题可能继续接收目录；耗尽后降级/清理回归已覆盖 |
-
 | `public/js/lobbyDiscovery.js`、`public/js/ui/lobbyDiscovery.js` | 独立订阅控制器、重连/过期响应保护、统计 pill、列表分页、容量优先与无房反馈 | 让路由生命周期与呈现组件可分别测试；加入始终由服务器执行 |
 | `public/js/screens/lobby.js`、`public/css/screens/lobby.css` | 左上在线人数；模式卡片下方紧凑联机板块；不透明房间目录弹窗；保留 4/8/10/16/20 容量来源 | 不改变右侧创建房间逻辑，回收模式卡片多余留白，避免标题/资源按钮重叠 |
 | `public/i18n/{en,ja,ko,zh-TW}.json` | 增加统计、目录、匹配和状态文案 | 四语言保持完整包严格检查 |
@@ -51,7 +50,7 @@
 | `node --test test/lobby-discovery.test.js test/lobby-capacity.test.js` | Windows / Node，含真实 WebSocket 并发最后空席、20 真人容量、分页及清理 | **21/21 通过**；新目录 17 项、容量 4 项 |
 | `node --test test/client-static.test.js test/docs-paths.test.js test/docs-consistency.test.js test/lobby-ownership.test.js test/lobby-kick.test.js test/ui/lobby-discovery-ui.test.js test/ui/lobby-discovery-model.test.js` | 静态、现有房间回归与新增客户端模型/呈现 | **405/405 通过**；其中新模型 13 项、呈现 5 项 |
 | `SP_E2E=1 node --test test/lobby-discovery.browser.test.js` | Edge 154.0.4258.62；1920×1080 / 1280×720；5 个真实 WS 建立的房间、6 名人类连接及 21 AI；match 使用 Stub，仅目录状态 | **1/1 通过**：在线计数、列表手动加入、容量无候选回退、无房反馈、路由清理；无页面异常 |
-| `npm run typecheck` | 当前仓库配置 | 通过 |
+| `npm run typecheck` | 当前仓库既有检查切片（共享模块及指定模拟文件） | 通过；不等于全仓库 JS 类型检查 |
 | 四语言 `node tools/i18n.mjs check en ja ko zh-TW --strict` | 每包 1276 条使用文本 | 四包均零缺失、零错误 |
 | 范围 ESLint | 后端/共享协议/前端新文件 | 零错误；`server/lobby.js` 原有 seed 赋值警告保留 |
 | `node tools/check-imports.mjs` | 默认报告模式 | 报告 `server/sim/nodeData.js` 三条 Node 内置导入，与开始 HEAD 内容相同；不是本任务新增，未宣称 strict 通过 |
@@ -62,5 +61,9 @@ Edge 第一轮暴露新增板块增加留白、弹窗透明度问题，已局部
 
 - 实现结果：后端 `8490d0f` 与界面分阶段提交均完成；大厅统计、目录、加入和最快匹配可用。
 - 未确定或未完成：I002 的多房间/20 名真人生产性能仍待真实服务器测量；本任务只做短流程。
-- 提交 / 远程 / 素材 / 线上：后端已提交；界面与本文收尾同属下一提交；无远程操作、无素材更改、未部署。
+- 提交 / 远程 / 素材 / 线上：后端 `8490d0f`、界面与文档 `23dea17`；无远程操作、无素材更改、未部署。
 - 接手入口：`server/lobbyDiscovery.js`、`public/js/lobbyDiscovery.js`、`public/js/ui/lobbyDiscovery.js` 与对应测试。
+
+## 后续补充
+
+2026-10-10 收尾复核：目录/模型/呈现 35 项和文档 31 项通过。Edge 与客户端连接在 finally 中关闭，服务器关闭；最后验收端口 60970 及前次 52616、62550 本机连接均返回 ECONNREFUSED。两档界面新增后滚动范围与原卡片版式对照相同（1080 高为 54 px、720 高为 39 px），创建按钮完整可见。截图改为每次运行独立缓存目录，避免 Windows 预览占用旧图片时重写失败。
