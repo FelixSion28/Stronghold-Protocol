@@ -29,6 +29,7 @@
 | 项目 | 已核实状态 |
 |---|---|
 | 分支 | `feat/IncreasePlayerCapacity` |
+| 最近本地开发 | [DEV-20261009-01](records/2026-10-09-01-announcements.md)：普通公告中心完成，92 个相关测试及 Edge 入口/免提示/滚动检查通过；局内显式弹窗待独立提交，未推送或部署 |
 | 本次上游修复合并前的 HEAD | `b4c6ebefe810ed6983a5a492d5e6ce6b123e74f9`，已推送并带 `v0.2.1-20p.2` 标签 |
 | 已合并的上游版本 | v0.2.1 ＋ Windows ZIP 中文名修复 #311，`3eced7bdba5aae11a325bd3dbe66cdf01361d2bd`；包版本仍为 0.2.1 |
 | 最近合并提交 | 与 [本次修复同步记录](records/2026-10-08-07-upstream-zipfix.md) 同一提交，保留两个父提交；初次 v0.2.1 合并为 `90e01ad` |
@@ -67,6 +68,7 @@
 | 战斗模拟、伤害、领袖机制 | [SIM.md](../SIM.md) |
 | 生成数据与素材 | [DATA.md](../DATA.md)、[ASSETS.md](../ASSETS.md) |
 | 游玩、部署与 Windows 包 | [PLAYING.md](../PLAYING.md)、[DEPLOY.md](../DEPLOY.md)、[WINDOWS.md](../WINDOWS.md) |
+| 服主发布公告及玩家免提示 | [ANNOUNCEMENTS.md](../ANNOUNCEMENTS.md) |
 | 原版规则考证 | [research/00-INDEX.md](../research/00-INDEX.md) |
 
 参考资料中的原版四人规则、历史假设和旧实现不自动等于本分支现状。遇到不一致，先核对相关决定、后续记录、当前源码和测试，把查明的差异写进本目录。

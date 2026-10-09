@@ -47,6 +47,7 @@ import { GameScreen } from './screens/game.js';
 import { installAudio } from './audio.js';
 import { settingsStore } from './ui/settings.js';
 import { GuideHost } from './ui/guide.js';
+import { AnnouncementHost, installAnnouncements } from './ui/announcements.js';
 import { installDeviceSupport } from './ui/device.js';
 import { LoadoutHost } from './screens/loadout.js';
 import { installLoadoutSync, installOwnershipSync, installDiySync } from './ui/loadoutSync.js';
@@ -287,6 +288,7 @@ function App() {
     <${ToastHost} />
     <${UiHosts} />
     <${GuideHost} />
+    <${AnnouncementHost} />
     <${LoadoutHost} />
   </div>`;
 }
@@ -340,6 +342,7 @@ async function boot() {
   }));
 
   wireNet();
+  installAnnouncements({ appStore: store, selectRoute, net, restoreGraceMs: RESTORE_GRACE_MS });
   installLoadoutSync({ net });
   installOwnershipSync({ net });
   installDiySync({ net });

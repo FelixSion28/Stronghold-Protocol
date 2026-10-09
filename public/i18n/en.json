@@ -1088,5 +1088,19 @@
   "{group}组": "Group {group}",
   "（本组）": " (your group)",
   "正在查看{group}组，只有本组成员可以选择": "Viewing Group {group}; only its members can choose",
-  "返回本组": "Return to your group"
+  "返回本组": "Return to your group",
+  "公告": "Announcements",
+  "公告详情": "Announcement details",
+  "历史公告": "Announcement history",
+  "公告列表": "Announcement list",
+  "下次不再显示": "Do not show again",
+  "发布新公告后重新提醒": "Show again when a new announcement is published",
+  "返回正文": "Back to article",
+  "置顶": "Pinned",
+  "正在加载公告": "Loading announcements",
+  "暂无公告": "No announcements",
+  "公告列表加载失败，请重试": "Could not load announcements. Please retry.",
+  "正在加载公告正文": "Loading announcement",
+  "公告正文加载失败，请重试": "Could not load this announcement. Please retry.",
+  "公告内容过长，已截断显示。": "This announcement is too long and has been truncated."
 }

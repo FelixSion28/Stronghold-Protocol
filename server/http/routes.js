@@ -9,6 +9,7 @@
 // A route that throws is logged and answers 500.
 
 import { PROTOCOL_VERSION, APP_VERSION } from '../../shared/constants.js';
+import { isAnnouncementId } from '../../shared/announcements.js';
 import { buildTag } from './buildTag.js';
 import { setSecurityHeaders, sendError, sendJson, splitUrl } from './common.js';
 
@@ -33,10 +34,11 @@ export function healthReport({ startedAt, network, registry, lobby }) {
  * The request listener for `http.createServer`.
  * @param {{ serveStatic: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse,
  *             rawPath: string, query: string) => Promise<void>,
- *           health: Parameters<typeof healthReport>[0], log: object }} deps
+ *           health: Parameters<typeof healthReport>[0], log: object,
+ *           announcements?: ReturnType<typeof import('../announcements.js').createAnnouncementStore> }} deps
  * @returns {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void}
  */
-export function createRequestHandler({ serveStatic, health, log }) {
+export function createRequestHandler({ serveStatic, health, log, announcements }) {
   async function handleRequest(req, res) {
     const url = req.url || '/';
     if (url.length > MAX_URL_LENGTH) { sendError(req, res, 414, '请求地址过长 · URI too long'); return; }
@@ -49,6 +51,17 @@ export function createRequestHandler({ serveStatic, health, log }) {
     }
     if (parts.rawPath === '/healthz') {
       sendJson(req, res, 200, healthReport(health));
+      return;
+    }
+    if (parts.rawPath === '/api/announcements') {
+      sendJson(req, res, 200, announcements?.list() || { revision: '', pinnedId: null, items: [] });
+      return;
+    }
+    if (parts.rawPath.startsWith('/api/announcements/')) {
+      let id;
+      try { id = decodeURIComponent(parts.rawPath.slice('/api/announcements/'.length)); } catch { /* invalid URL */ }
+      const article = isAnnouncementId(id) ? announcements?.read(id) : null;
+      sendJson(req, res, article ? 200 : 404, article || { error: 'ANNOUNCEMENT_NOT_FOUND' });
       return;
     }
     await serveStatic(req, res, parts.rawPath, parts.query);
