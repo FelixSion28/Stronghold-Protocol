@@ -62,7 +62,7 @@ test('pre-cache status/catalog share one snapshot; gzip, conditional GET and HEA
     const [status, index] = await Promise.all([request(server, '/api/asset-cache/status'), request(server, '/api/asset-cache/catalog')]);
     const report = JSON.parse(status.body);
     assert.equal(report.totalBytes, catalog.totalBytes); assert.equal(report.totalFiles, 2);
-    assert.equal(report.policy.totalBps, 1_000_000); assert.equal(report.policy.clientBps, 125_000);
+    assert.equal(report.policy.totalBps, 1_000_000); assert.equal(report.policy.clientBps, 500_000);
     assert.equal(report.policy.activeDownloads, 0); assert.equal(builds(), 1);
     assert.equal(status.headers['cache-control'], 'no-store');
     assert.deepEqual(JSON.parse(index.body), catalog); assert.equal(index.headers['cache-control'], 'no-cache');

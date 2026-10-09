@@ -3,7 +3,7 @@
 import { performance } from 'node:perf_hooks';
 
 export const ASSET_CACHE_LIMIT_DEFAULTS = Object.freeze({
-  totalBps: 1_000_000, clientBps: 125_000, maxDownloads: 24, maxDownloadsPerClient: 2,
+  totalBps: 1_000_000, clientBps: 500_000, maxDownloads: 24, maxDownloadsPerClient: 2,
 });
 
 const QUANTUM = 8 * 1024;

@@ -71,20 +71,22 @@ npm run assets:pack -- --out ./runtime/asset-pack-distribution
 | 项目 | 默认值 |
 |---|---|
 | 单个 Node.js 服务进程的总预算 | **1,000,000 B/s＝8 Mbps** |
-| 单客户端网络地址共享上限 | **125,000 B/s＝1 Mbps** |
+| 单客户端网络地址共享上限 | **500,000 B/s＝4 Mbps** |
 | 同时处理的下载 | 全局至多 24 个，同客户端网络至多 2 个 |
 | 分配方式 | 总预算内按活跃客户端公平轮转，同客户端的多个请求共用其上限 |
 
 多人下载时动态分配固定预算；人数减少后其余客户端可使用释放的份额，但不超过各自上限。家庭、校园等共用公网 IP 的玩家会共享该网络上限。队列满时返回 429 和重试间隔，客户端等待重试；多次重试仍失败时保留进度供稍后继续。
+
+两个不同公网 IP 同时补齐时，各自理论预算可达 500000 B/s（0.5 MB/s），合计仍受 8 Mbps 限制。若启动环境显式设置过旧值 `SP_ASSET_CACHE_CLIENT_BPS=125000`，更新代码不会覆盖该设置；需改为 `500000` 或删除覆盖项后重启。
 
 此机制不测量云服务器实际剩余出口、不按标称峰值自动提速，也不能保证消除运营商或云链路突然降速。普通游戏 HTTP、公告和 WebSocket 不使用该补齐限流器；首次按需加载仍会消耗流量。因此完整包外部分发和本地导入优先，不建议让所有玩家用在线补齐下载空缓存的全部素材。
 
 使用以下环境变量，单位均为**字节每秒**，不是 Mbps 或 MiB/s；设置后重启服务生效：
 
 ```powershell
-# Windows PowerShell：默认全服 8 Mbps，每网络 1 Mbps
+# Windows PowerShell：默认全服 8 Mbps，每网络 4 Mbps
 $env:SP_ASSET_CACHE_TOTAL_BPS = '1000000'
-$env:SP_ASSET_CACHE_CLIENT_BPS = '125000'
+$env:SP_ASSET_CACHE_CLIENT_BPS = '500000'
 npm start
 
 # 完全关闭在线补齐；本地 ZIP 导入仍可使用
@@ -93,7 +95,7 @@ $env:SP_ASSET_CACHE_TOTAL_BPS = '0'
 
 ```bash
 # Linux/macOS
-SP_ASSET_CACHE_TOTAL_BPS=1000000 SP_ASSET_CACHE_CLIENT_BPS=125000 npm start
+SP_ASSET_CACHE_TOTAL_BPS=1000000 SP_ASSET_CACHE_CLIENT_BPS=500000 npm start
 ```
 
 多个 Node.js 进程或多台服务器各有独立预算，不会自动共享全服令牌。采用多实例部署时，应按实例分摊预算，或在统一入口额外设置限流。

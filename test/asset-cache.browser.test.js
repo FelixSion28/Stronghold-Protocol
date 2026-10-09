@@ -50,7 +50,7 @@ async function fixture(run) {
       res.end(JSON.stringify(failCatalog ? {} : catalog())); return;
     }
     if (url.pathname === '/api/asset-cache/status') {
-      res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ policy: { enabled: true, totalBps: 1000000, clientBps: 125000 } })); return;
+      res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ policy: { enabled: true, totalBps: 1000000, clientBps: 500000 } })); return;
     }
     if (url.pathname === '/api/asset-cache/file') {
       const target = url.searchParams.get('url'); const bytes = contents.get(target);
