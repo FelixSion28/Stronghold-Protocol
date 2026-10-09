@@ -137,6 +137,7 @@ export function AssetCacheHost() {
             onClick=${() => run(() => assetCache.downloadMissing())} data-testid="asset-cache-download">${t('在线补齐缺项')}<//>
         ${busy ? html`<${Button} variant="secondary" onClick=${() => assetCache.pause()} data-testid="asset-cache-pause">${t('暂停')}<//>` : null}
       </div>
+      <p class="asset-cache__warning">${t('从服务器直接下载所有资源非常缓慢，推荐从公告中提供的素材包下载方式中下载')}</p>
       <div class="asset-cache__checks">
         <${Button} variant="secondary" size="sm" disabled=${disabled} onClick=${() => run(() => assetCache.scan({ deep: false }))}>${t('检查更新与缺项')}<//>
         <${Button} variant="secondary" size="sm" disabled=${disabled} onClick=${() => run(() => assetCache.scan({ deep: true }))} data-testid="asset-cache-verify">${t('完整校验')}<//>
