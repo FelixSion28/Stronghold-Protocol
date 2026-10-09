@@ -10,6 +10,8 @@
 
 import { PROTOCOL_VERSION, APP_VERSION } from '../../shared/constants.js';
 import { isAnnouncementId } from '../../shared/announcements.js';
+import { ANNOUNCEMENT_ASSET_URL_PREFIX } from '../../shared/announcementAssets.js';
+import { serveAnnouncementAsset } from './announcementAssets.js';
 import { buildTag } from './buildTag.js';
 import { setSecurityHeaders, sendError, sendJson, splitUrl } from './common.js';
 
@@ -62,6 +64,10 @@ export function createRequestHandler({ serveStatic, health, log, announcements }
       try { id = decodeURIComponent(parts.rawPath.slice('/api/announcements/'.length)); } catch { /* invalid URL */ }
       const article = isAnnouncementId(id) ? announcements?.read(id) : null;
       sendJson(req, res, article ? 200 : 404, article || { error: 'ANNOUNCEMENT_NOT_FOUND' });
+      return;
+    }
+    if (parts.rawPath === ANNOUNCEMENT_ASSET_URL_PREFIX.slice(0, -1) || parts.rawPath.startsWith(ANNOUNCEMENT_ASSET_URL_PREFIX)) {
+      await serveAnnouncementAsset(req, res, parts.rawPath.slice(ANNOUNCEMENT_ASSET_URL_PREFIX.length), announcements, log);
       return;
     }
     await serveStatic(req, res, parts.rawPath, parts.query);

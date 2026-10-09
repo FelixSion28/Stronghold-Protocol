@@ -2,8 +2,9 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  AnnouncementMarkdown, parseAnnouncementMarkdown, safeAnnouncementHref, ANNOUNCEMENT_MARKDOWN_LIMITS,
+  AnnouncementMarkdown, parseAnnouncementMarkdown, safeAnnouncementHref, safeAnnouncementImageSrc, ANNOUNCEMENT_MARKDOWN_LIMITS,
 } from '../../public/js/ui/announcementMarkdown.js';
+import { ANNOUNCEMENT_ASSET_URL_PREFIX } from '../../shared/announcementAssets.js';
 
 const textOf = (value) => {
   if (value == null || typeof value === 'boolean') return '';
@@ -101,7 +102,7 @@ describe('announcement Markdown subset', () => {
     assert.equal(links[2].props.href, '#top');
   });
 
-  test('reference links, tables and images remain visible text without image requests', () => {
+  test('reference links, tables, unsupported and malformed images stay visible text', () => {
     for (const source of ['![图](https://example.com/a.png)', '![图](javascript:alert(1))', '![图][ref]', '![](x)',
       '![**图**](https://example.com/a.png)', '![未闭合图', '![未闭合图\n下一行', '![图](**未闭合目标**', '![图][**未闭合引用**',
       '[参考][ref]', '[**参考**][ref]', '[**参考**][未闭合', '| 一 | 二 |\n| --- | --- |']) {
@@ -119,6 +120,114 @@ describe('announcement Markdown subset', () => {
     const output = render('[外层 [内层](https://inner.example)](https://outer.example)');
     assert.equal(elements(output).filter((v) => v.type === 'a').length, 1);
     assert.match(textOf(output), /\[内层\]\(https:\/\/inner\.example\)/);
+  });
+});
+
+describe('announcement Markdown images', () => {
+  test('all documented source forms resolve only to the dedicated announcement-asset route', () => {
+    for (const source of ['assets/banner.png', './assets/banner.png', `${ANNOUNCEMENT_ASSET_URL_PREFIX}banner.png`]) {
+      assert.equal(safeAnnouncementImageSrc(source), `${ANNOUNCEMENT_ASSET_URL_PREFIX}banner.png`);
+      assert.deepEqual(paragraph(`![公告图](${source} "说明")`), [{ type: 'image',
+        src: `${ANNOUNCEMENT_ASSET_URL_PREFIX}banner.png`, title: '说明', alt: '公告图' }]);
+    }
+    const image = elements(render('![公告图](assets/banner.png "说明")')).find((v) => v.type === 'img');
+    assert.equal(image.props.class, 'announcement-markdown__image');
+    assert.equal(image.props.src, `${ANNOUNCEMENT_ASSET_URL_PREFIX}banner.png`);
+    assert.equal(image.props.alt, '公告图');
+    assert.equal(image.props.title, '说明');
+    assert.equal(image.props.loading, 'lazy');
+    assert.equal(image.props.decoding, 'async');
+    assert.equal(image.props.referrerPolicy, 'no-referrer');
+    assert.ok(!('dangerouslySetInnerHTML' in image.props));
+    assert.ok(Object.keys(image.props).every((key) => !/^on/i.test(key)));
+  });
+
+  test('Chinese, spaces and balanced parentheses in paths are encoded once', () => {
+    for (const source of ['assets/图片/图%201.png', './assets/图片/图 1.png', `${ANNOUNCEMENT_ASSET_URL_PREFIX}%E5%9B%BE%E7%89%87/%E5%9B%BE%201.png`]) {
+      assert.equal(safeAnnouncementImageSrc(source), `${ANNOUNCEMENT_ASSET_URL_PREFIX}%E5%9B%BE%E7%89%87/%E5%9B%BE%201.png`);
+    }
+    const image = elements(render('![文字](<assets/图片/图 1.png> "标题")')).find((v) => v.type === 'img');
+    assert.equal(image.props.src, `${ANNOUNCEMENT_ASSET_URL_PREFIX}%E5%9B%BE%E7%89%87/%E5%9B%BE%201.png`);
+    assert.equal(paragraph('![图](assets/banner_(v2).png)')[0].src, `${ANNOUNCEMENT_ASSET_URL_PREFIX}banner_(v2).png`);
+    assert.equal(safeAnnouncementImageSrc('assets/banner.JPG'), `${ANNOUNCEMENT_ASSET_URL_PREFIX}banner.JPG`);
+  });
+
+  test('escaped alt text becomes ordinary accessible text without creating nested requests', () => {
+    const image = elements(render('![示例\\[一\\] **粗体** `代码` \\"标题\\"](assets/banner.png)')).find((v) => v.type === 'img');
+    assert.equal(image.props.alt, '示例[一] 粗体 代码 "标题"');
+    assert.equal(paragraph('![](assets/banner.png)')[0].alt, '');
+    const nested = elements(render('![![内图](assets/inner.png)](assets/outer.png)'));
+    assert.equal(nested.filter((v) => v.type === 'img').length, 1);
+    assert.equal(nested.find((v) => v.type === 'img').props.alt, '![内图](assets/inner.png)');
+    assert.ok(!nested.some((v) => v.type === 'a'));
+  });
+
+  test('an image can be the label of one safe link without changing link behavior', () => {
+    const output = render('[![缩略图](assets/banner_(v2).png "图注")](https://example.com/full)');
+    const nodes = elements(output), link = nodes.find((v) => v.type === 'a'), image = nodes.find((v) => v.type === 'img');
+    assert.equal(nodes.filter((v) => v.type === 'a').length, 1);
+    assert.equal(nodes.filter((v) => v.type === 'img').length, 1);
+    assert.equal(link.props.href, 'https://example.com/full');
+    assert.equal(link.props.rel, 'noopener noreferrer');
+    assert.ok(elements(link.props.children).includes(image));
+    assert.equal(image.props.alt, '缩略图');
+    assert.equal(image.props.title, '图注');
+    assert.equal(safeAnnouncementHref('http://example.com/path'), 'http://example.com/path');
+  });
+
+  test('HTML in alt text and quoted titles stays inside fixed text attributes', () => {
+    const source = `![<img src=x onerror=alert(1)>](assets/banner.png '\"><svg onload=alert(1)>')`;
+    const nodes = elements(render(source)), image = nodes.find((v) => v.type === 'img');
+    assert.equal(nodes.filter((v) => v.type === 'img').length, 1);
+    assert.ok(nodes.every((v) => ['div', 'p', 'img'].includes(v.type)));
+    assert.equal(image.props.alt, '<img src=x onerror=alert(1)>');
+    assert.equal(image.props.title, '\"><svg onload=alert(1)>');
+    assert.ok(Object.keys(image.props).every((key) => !/^on/i.test(key)));
+    assert.ok(!('dangerouslySetInnerHTML' in image.props));
+  });
+
+  test('external URLs, other site paths, non-images and encoded traversal never create image nodes', () => {
+    for (const source of ['https://example.com/banner.png', 'http://example.com/banner.png', '//example.com/banner.png',
+      'javascript:alert(1)', 'data:image/png;base64,AA', 'file:///C:/banner.png', 'mailto:a@example.com',
+      '%6aavascript%3aalert(1)', 'https%3a%2f%2fexample.com/banner.png', '/assets/banner.png', '/public/banner.png',
+      'banner.png', '../assets/banner.png', '/api/announcements/article', 'assets/banner.svg', 'assets/banner.html',
+      'assets/index.json', 'assets/../banner.png', 'assets/%2e%2e/banner.png', 'assets/%252e%252e/banner.png',
+      'assets/.private/banner.png', 'assets/a%2fbanner.png', 'assets/a%5cbanner.png', 'assets/a\\banner.png',
+      'assets/banner.png?secret=1', 'assets/banner.png#fragment', 'assets//banner.png', 'assets/con.png', 'assets/a%00.png', 'assets/\ud800.png']) {
+      assert.equal(safeAnnouncementImageSrc(source), null, source);
+      const markdown = `![图](${source})`, output = render(markdown);
+      assert.equal(textOf(output), markdown, source);
+      assert.ok(!elements(output).some((v) => v.type === 'img'), source);
+    }
+    for (const source of ['', null, undefined, 42, {}]) assert.equal(safeAnnouncementImageSrc(source), null);
+  });
+
+  test('raw HTML, code, reference images and escaped image markers never load images', () => {
+    for (const source of ['<img src="/api/announcement-assets/banner.png" onerror="alert(1)">',
+      '<div>![图](assets/banner.png)</div>', '`![图](assets/banner.png)`', '```md\n![图](assets/banner.png)\n```',
+      '![图][banner]', '![图](assets/banner.png', '\\![图](assets/banner.png)']) {
+      const output = render(source);
+      assert.ok(!elements(output).some((v) => v.type === 'img'), source);
+      assert.ok(textOf(output).includes('图') || textOf(output).includes('<img'), source);
+    }
+    for (const source of ['![**图**](assets/未闭合', '![图](**未闭合目标**', '![图][**未闭合引用**']) {
+      assert.equal(textOf(render(source)), source);
+    }
+  });
+
+  test('the image budget applies across blocks and linked images, and resets for the next document', () => {
+    const limit = ANNOUNCEMENT_MARKDOWN_LIMITS.images;
+    const source = Array.from({ length: limit }, (_, i) => `[![第${i}图](assets/banner.png)](https://example.com/full)`).join('\n\n');
+    assert.equal(parseAnnouncementMarkdown(source).truncated, false);
+    assert.equal(elements(render(source)).filter((v) => v.type === 'img').length, limit);
+    const overflow = source + '\n\n![超量](assets/extra.png)\n后文';
+    assert.equal(parseAnnouncementMarkdown(overflow).truncated, true);
+    const output = render(overflow);
+    assert.equal(elements(output).filter((v) => v.type === 'img').length, limit);
+    assert.equal(elements(output).filter((v) => v.props.class === 'announcement-markdown__notice').length, 1);
+    assert.ok(!textOf(output).includes('后文'));
+    assert.equal(parseAnnouncementMarkdown('![新公告](assets/banner.png)').truncated, false);
+    assert.equal(elements(render('![新公告](assets/banner.png)')).filter((v) => v.type === 'img').length, 1);
   });
 });
 

@@ -1,16 +1,18 @@
 // Safe, deliberately small Markdown renderer for text announcements (Preact + htm).
 // Supported: paragraphs with visible line breaks, ATX headings (1–6), ordered/unordered lists
 // with indented continuations, block quotes, rules, fenced code, inline code, strong/emphasis,
-// backslash escapes and inline links (optionally with a quoted title).
-// This is not full CommonMark: tables, reference links, autolinks, HTML and images stay text.
+// backslash escapes, inline links and images (optionally with a quoted title).
+// This is not full CommonMark: tables, reference links/images, autolinks and HTML stay text.
 // Source never becomes HTML; only the fixed elements below are created as Preact vnodes.
-// CSS: .announcement-markdown, __code (scrollable pre), __inline-code and __notice.
+// Images use only the private announcement-assets route, with no referrer and at most 32 per document.
+// CSS: .announcement-markdown, __code (scrollable pre), __inline-code, __image and __notice.
 
 import { html, h } from './components.js';
 import { ANNOUNCEMENT_MAX_BODY_CHARS } from '../../../shared/announcements.js';
+import { ANNOUNCEMENT_ASSET_URL_PREFIX, announcementAssetSegments, announcementAssetMime } from '../../../shared/announcementAssets.js';
 import { t } from '../../../shared/i18n.js';
 
-export const ANNOUNCEMENT_MARKDOWN_LIMITS = Object.freeze({ chars: ANNOUNCEMENT_MAX_BODY_CHARS, nodes: 6000, depth: 8 });
+export const ANNOUNCEMENT_MARKDOWN_LIMITS = Object.freeze({ chars: ANNOUNCEMENT_MAX_BODY_CHARS, nodes: 6000, depth: 8, images: 32 });
 
 /** Safe browser destination, or null. Protocol-relative URLs and encoded scheme tricks are rejected. */
 export function safeAnnouncementHref(value) {
@@ -35,9 +37,21 @@ export function safeAnnouncementHref(value) {
   } catch { return null; }
 }
 
+/** Only announcement assets are images; all three documented forms become the dedicated read-only API URL. */
+export function safeAnnouncementImageSrc(value) {
+  if (typeof value !== 'string') return null;
+  const src = value.trim();
+  const prefix = [ANNOUNCEMENT_ASSET_URL_PREFIX, 'assets/', './assets/'].find((entry) => src.startsWith(entry));
+  if (!prefix) return null;
+  const segments = announcementAssetSegments(src.slice(prefix.length));
+  if (!segments || !announcementAssetMime(segments[segments.length - 1])) return null;
+  try { return ANNOUNCEMENT_ASSET_URL_PREFIX + segments.map(encodeURIComponent).join('/'); }
+  catch { return null; } // malformed UTF-16 in untrusted Markdown must remain text, never throw
+}
+
 function budget() {
   return {
-    used: 0, truncated: false,
+    used: 0, images: 0, truncated: false,
     take() {
       if (this.used >= ANNOUNCEMENT_MARKDOWN_LIMITS.nodes) { this.truncated = true; return false; }
       this.used += 1;
@@ -95,14 +109,18 @@ function inlineIndexes(source) {
   return { nextTick, closing, htmlEnd };
 }
 
-function destination(raw) {
+function destination(raw, image = false) {
   const match = /^(?:<([^<>\n]+)>|([^\s]+?))(?:[ \t]+(?:"([^"\n]*)"|'([^'\n]*)'))?$/.exec(raw.trim());
   if (!match) return null;
-  const href = safeAnnouncementHref(match[1] ?? match[2]);
+  const href = (image ? safeAnnouncementImageSrc : safeAnnouncementHref)(match[1] ?? match[2]);
   return href ? { href, title: match[3] ?? match[4] } : null;
 }
 
-function parseInline(source, state, allowLinks = true) {
+function inlinePlain(nodes) {
+  return nodes.map((node) => node.type === 'break' ? ' ' : node.text ?? inlinePlain(node.children || [])).join('');
+}
+
+function parseInline(source, state, allowLinks = true, allowImages = true) {
   const { nextTick, closing, htmlEnd } = inlineIndexes(source);
   const frames = [{ children: [] }];
   const current = () => frames[frames.length - 1].children;
@@ -128,7 +146,8 @@ function parseInline(source, state, allowLinks = true) {
   };
   for (let i = 0; i < source.length && !state.truncated;) {
     const char = source[i];
-    if (char === '\\' && /[\\`*{}[\]()#+\-.!_>~|]/.test(source[i + 1] || '')) {
+    if (char === '\\' && (/[\\`*{}[\]()#+\-.!_>~|]/.test(source[i + 1] || '')
+      || (!allowImages && /["']/.test(source[i + 1] || '')))) {
       appendText(source[i + 1]); i += 2; continue;
     }
     if (char === '\n') { append({ type: 'break' }); i++; continue; }
@@ -151,10 +170,16 @@ function parseInline(source, state, allowLinks = true) {
         const suffix = source[endLabel + 1];
         const end = (suffix === '(' || suffix === '[') ? closing.get(endLabel + 1) : null;
         if (end != null) {
-          const target = !image && suffix === '(' ? destination(source.slice(endLabel + 2, end)) : null;
+          const target = suffix === '(' && (!image || allowImages) ? destination(source.slice(endLabel + 2, end), image) : null;
           if (target) {
-            const children = parseInline(source.slice(open + 1, endLabel), state, false);
-            append({ type: 'link', ...target, children });
+            if (image) {
+              if (state.images >= ANNOUNCEMENT_MARKDOWN_LIMITS.images) { state.truncated = true; break; }
+              const alt = inlinePlain(parseInline(source.slice(open + 1, endLabel), state, false, false));
+              if (append({ type: 'image', src: target.href, title: target.title, alt })) state.images++;
+            } else {
+              const children = parseInline(source.slice(open + 1, endLabel), state, false);
+              append({ type: 'link', ...target, children });
+            }
           } else appendLiteral(source.slice(i, end + 1));
           i = end + 1; continue;
         }
@@ -308,6 +333,8 @@ function renderInline(nodes) {
     if (node.type === 'code') return html`<code class="announcement-markdown__inline-code">${node.text}</code>`;
     if (node.type === 'strong') return html`<strong>${renderInline(node.children)}</strong>`;
     if (node.type === 'em') return html`<em>${renderInline(node.children)}</em>`;
+    if (node.type === 'image') return html`<img class="announcement-markdown__image" src=${node.src} alt=${node.alt}
+      title=${node.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" />`;
     if (node.type === 'link') {
       const external = /^https?:\/\//i.test(node.href);
       return html`<a href=${node.href} title=${node.title} target=${external ? '_blank' : undefined}

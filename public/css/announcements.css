@@ -55,6 +55,7 @@
 .announcement-markdown li > p { margin-bottom: .08rem; }
 .announcement-markdown a { color: var(--mint-400); text-decoration: underline; text-underline-offset: .16em; }
 .announcement-markdown a:hover { color: var(--text-hi); }
+.announcement-markdown__image { display: block; max-width: 100%; height: auto; margin: .12rem 0; }
 .announcement-markdown blockquote { padding: .08rem .18rem; border-left: 3px solid var(--mint-700); color: var(--text-lo); background: rgba(0, 0, 0, .2); }
 .announcement-markdown blockquote > :last-child { margin-bottom: 0; }
 .announcement-markdown hr { border: 0; border-top: 1px solid var(--line-2); margin: .25rem 0; }

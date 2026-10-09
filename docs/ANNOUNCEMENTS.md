@@ -37,7 +37,29 @@ node tools/announcements.mjs unpin
 
 每个编号只发布一次；修正公告时用新编号发布，保留历史并产生新的提醒版本。请使用工具发布，不手工修改已发布的正文或索引；完整性检查会拒绝未登记的修改。
 
-支持标题、段落、粗体、斜体、列表、引用、分隔线、行内代码、围栏代码和安全链接等常用 Markdown。原始 HTML 和图片语法显示为文字；不是完整 Markdown 扩展实现，不支持任意网页或脚本。标题最多 120 个 Unicode 字符，正文最多 50,000 个 UTF-16 字符且不超过 128 KiB，最多保存 2,000 条公告。
+支持标题、段落、粗体、斜体、列表、引用、分隔线、行内代码、围栏代码、安全链接和公告图片等常用 Markdown。原始 HTML 显示为文字；不是完整 Markdown 扩展实现，不支持任意网页或脚本。标题最多 120 个 Unicode 字符，正文最多 50,000 个 UTF-16 字符且不超过 128 KiB，最多保存 2,000 条公告。
+
+## 在公告中放图片
+
+图片与公告一起单独管理，不放在 `public`。使用默认目录时，将图片放进项目下的 `runtime/announcements/assets`（没有这个子目录时自行创建），例如：
+
+```text
+runtime/announcements/assets/banner.png
+runtime/announcements/assets/update/team.webp
+```
+
+Markdown 写法：
+
+```markdown
+![开服安排](assets/banner.png)
+![队伍示意](assets/update/team.webp "队伍分组")
+```
+
+`assets/` 固定表示公告存储目录下的图片目录，不表示草稿所在目录；`./assets/` 写法也支持。草稿仍可放在任何位置，`--file` 只复制 Markdown 正文，图片须由服主另行放到上述目录。使用 `SP_ANNOUNCEMENTS_DIR` 或 `--dir` 更改公告目录后，图片相应放在该目录的 `assets/` 中。
+
+图片通过本站 `/api/announcement-assets/` 地址只读提供，普通公告与紧急通知共用。仅支持 PNG、JPG/JPEG、GIF、WebP、AVIF 和 BMP；不支持外链、`public/assets` 图片、SVG、HTML 或本机磁盘路径。文件名与扩展名大小写在 Linux 上必须一致；文件名有空格时写成 `![说明](<assets/图片 1.png>)` 或将空格写成 `%20`。
+
+每篇最多显示 32 张图片，超出时显示已有的截断提示；每张文件不超过 16 MiB。图片按正文宽度等比缩放，滚动到附近才加载。更换图片建议使用新文件名；更新公告内容仍用新公告编号发布。Git 和发布包不会包含公告运行目录或这些图片，迁移和备份时复制完整公告目录（包含 `assets/`）。
 
 ## 存储与部署
 
