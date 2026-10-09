@@ -2,11 +2,16 @@
 // All expensive work runs in a dedicated worker. UI consumes codes through i18n, never raw errors.
 import { validateAssetCatalog, assetCacheError } from '../../shared/assetCache.js';
 
-const initialState = (env) => ({ supported: !!(env.isSecureContext && env.caches && env.navigator?.serviceWorker
-  && env.Worker && env.crypto?.subtle && env.navigator?.locks), phase: 'idle', error: null,
-totalFiles: 0, readyFiles: 0, totalBytes: 0, readyBytes: 0, missingFiles: 0, missingBytes: 0,
-speedBps: 0, version: null, storage: { usage: 0, quota: 0, persisted: false }, playing: false,
-catalogComplete: false, serverMissingFiles: 0, importStats: null, scanStats: null, waiting: false, policy: null });
+const initialState = (env) => {
+  const supported = !!(env.isSecureContext && env.caches && env.navigator?.serviceWorker
+    && env.Worker && env.crypto?.subtle && env.navigator?.locks);
+  return { supported, phase: 'idle', error: null,
+    totalFiles: 0, readyFiles: 0, totalBytes: 0, readyBytes: 0, missingFiles: 0, missingBytes: 0,
+    speedBps: 0, version: null, storage: { usage: 0, quota: 0, persisted: false,
+      persistenceSupported: supported && typeof env.navigator?.storage?.persist === 'function' }, playing: false,
+    catalogComplete: false, serverMissingFiles: 0, importStats: null, scanStats: null, waiting: false, policy: null,
+    persistence: 'idle' };
+};
 
 export function createAssetCacheManager({ environment = globalThis, doFetch, workerURL = '/js/asset-cache-worker.js',
   swURL = '/asset-cache-sw.js', catalogURL = '/api/asset-cache/catalog', statusURL = '/api/asset-cache/status' } = {}) {
@@ -26,6 +31,7 @@ export function createAssetCacheManager({ environment = globalThis, doFetch, wor
   let backgroundTimer = null;
   let checkingStorage = null;
   let checkingCatalog = null;
+  let persistenceRequest = null;
   const getState = () => ({ ...state, storage: { ...state.storage }, importStats: state.importStats && { ...state.importStats },
     scanStats: state.scanStats && { ...state.scanStats }, policy: state.policy && { ...state.policy } });
   const patch = (next) => {
@@ -43,10 +49,17 @@ export function createAssetCacheManager({ environment = globalThis, doFetch, wor
   async function updateStorage() {
     if (checkingStorage) return checkingStorage;
     checkingStorage = (async () => {
-      try {
-        const [estimate, persisted] = await Promise.all([env.navigator.storage?.estimate?.(), env.navigator.storage?.persisted?.()]);
-        patch({ storage: { usage: estimate?.usage || 0, quota: estimate?.quota || 0, persisted: !!persisted } });
-      } catch { /* Some private browser modes reject storage inspection. */ }
+      // Quota and persistence inspection can fail independently in private browser modes.
+      const [estimate, persisted] = await Promise.allSettled([
+        Promise.resolve().then(() => env.navigator.storage?.estimate?.()),
+        Promise.resolve().then(() => env.navigator.storage?.persisted?.()),
+      ]);
+      patch({ storage: { ...state.storage,
+        ...(estimate.status === 'fulfilled' && estimate.value
+          ? { usage: estimate.value.usage || 0, quota: estimate.value.quota || 0 } : {}),
+        ...(persisted.status === 'fulfilled' && typeof persisted.value === 'boolean'
+          ? { persisted: persisted.value } : {}),
+      } });
     })();
     try { await checkingStorage; } finally { checkingStorage = null; }
   }
@@ -251,11 +264,39 @@ export function createAssetCacheManager({ environment = globalThis, doFetch, wor
       return perform('import', { file });
     },
     pause, clear: () => perform('clear'),
-    async requestPersistence() {
-      if (!state.supported) return false;
-      let granted = false;
-      try { granted = !!await env.navigator.storage?.persist?.(); } catch { /* Browser may deny this request. */ }
-      await updateStorage(); return granted;
+    requestPersistence() {
+      if (!state.supported || !state.storage.persistenceSupported) {
+        patch({ persistence: 'unsupported' });
+        return Promise.resolve(false);
+      }
+      if (state.storage.persisted) {
+        patch({ persistence: 'granted' });
+        return Promise.resolve(true);
+      }
+      if (persistenceRequest) return persistenceRequest;
+
+      // Invoke persist() before the first await so browsers retain the user activation.
+      let pending;
+      patch({ persistence: 'requesting' });
+      try { pending = env.navigator.storage.persist(); }
+      catch {
+        patch({ persistence: 'error' });
+        return Promise.resolve(false);
+      }
+      persistenceRequest = (async () => {
+        try {
+          const granted = !!await pending;
+          await updateStorage();
+          patch({ persistence: granted ? 'granted' : 'denied',
+            storage: { ...state.storage, persisted: granted || state.storage.persisted } });
+          return granted;
+        } catch {
+          await updateStorage();
+          patch({ persistence: 'error' });
+          return false;
+        } finally { persistenceRequest = null; }
+      })();
+      return persistenceRequest;
     },
     async setPlaying(value) {
       if (ownPlaying === !!value) return;

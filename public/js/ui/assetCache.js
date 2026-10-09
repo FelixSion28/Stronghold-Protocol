@@ -29,7 +29,7 @@ function useAssetCache() {
 
 export function AssetCacheButton({ compact = false }) {
   const state = useAssetCache();
-  return html`<${Button} variant="ghost" size="sm" icon="download" class="asset-cache-entry"
+  return html`<${Button} variant="primary" size="sm" icon="download" class="asset-cache-entry"
       title=${t('素材预缓存')} aria-label=${t('素材预缓存')} data-testid="asset-cache-open"
       onClick=${() => { show(true); assetCache.initialize().catch(() => {}); }}>
     <span class=${compact ? 'asset-cache-entry__compact' : 'asset-cache-entry__label'}>${t('预缓存')}</span>
@@ -68,6 +68,18 @@ function phaseText(phase) {
     case 'ready': return t('当前素材已缓存完整');
     case 'error': return t('操作未完成');
     default: return t('准备就绪');
+  }
+}
+
+function persistenceText(state) {
+  if (state.storage?.persisted) return t('浏览器已允许持久保存');
+  switch (state.persistence) {
+    case 'requesting': return t('正在申请持久保存…');
+    case 'denied': return t('浏览器本次未授予持久保存，现有缓存仍可使用；今后可再次申请。');
+    case 'error': return t('持久保存申请失败，请检查浏览器的站点存储设置后重试。');
+    default: return state.storage?.persistenceSupported
+      ? t('浏览器尚未允许持久保存，空间不足时可能清理缓存')
+      : t('当前浏览器不支持申请持久保存，现有缓存仍可使用。');
   }
 }
 
@@ -119,20 +131,24 @@ export function AssetCacheHost() {
       ${error && state.supported ? html`<p class="asset-cache__warning" role="alert">${cacheErrorText(error)}</p>` : null}
       <input ref=${input} type="file" accept=".zip,application/zip" class="asset-cache__file" onChange=${importFile} tabindex="-1" />
       <div class="asset-cache__actions">
-        <${Button} variant="primary" icon="folder" disabled=${disabled} onClick=${chooseFile} data-testid="asset-cache-import">${t('导入本地素材包')}<//>
+        <${Button} variant="primary" icon="folder" disabled=${disabled} onClick=${chooseFile} data-testid="asset-cache-import">
+          ${t('导入本地素材包')}<span class="asset-cache__recommend">${t('强烈推荐')}</span><//>
         <${Button} variant="secondary" icon="download" disabled=${disabled || !state.missingFiles || state.policy?.enabled === false}
             onClick=${() => run(() => assetCache.downloadMissing())} data-testid="asset-cache-download">${t('在线补齐缺项')}<//>
         ${busy ? html`<${Button} variant="secondary" onClick=${() => assetCache.pause()} data-testid="asset-cache-pause">${t('暂停')}<//>` : null}
       </div>
       <div class="asset-cache__checks">
-        <${Button} variant="ghost" size="sm" disabled=${disabled} onClick=${() => run(() => assetCache.scan({ deep: false }))}>${t('检查更新与缺项')}<//>
-        <${Button} variant="ghost" size="sm" disabled=${disabled} onClick=${() => run(() => assetCache.scan({ deep: true }))} data-testid="asset-cache-verify">${t('完整校验')}<//>
-        <${Button} variant="ghost" size="sm" disabled=${disabled} onClick=${() => run(clear)}>${t('清理素材缓存')}<//>
+        <${Button} variant="secondary" size="sm" disabled=${disabled} onClick=${() => run(() => assetCache.scan({ deep: false }))}>${t('检查更新与缺项')}<//>
+        <${Button} variant="secondary" size="sm" disabled=${disabled} onClick=${() => run(() => assetCache.scan({ deep: true }))} data-testid="asset-cache-verify">${t('完整校验')}<//>
+        <${Button} variant="secondary" size="sm" disabled=${disabled} onClick=${() => run(clear)}>${t('清理素材缓存')}<//>
       </div>
       <div class="asset-cache__storage">
         ${storage ? html`<span>${t('本站存储：已用 {used} / 配额约 {quota}', { used: formatCacheBytes(storage.usage), quota: formatCacheBytes(storage.quota) })}</span>` : null}
-        <span>${storage?.persisted ? t('浏览器已允许持久保存') : t('浏览器尚未允许持久保存，空间不足时可能清理缓存')}</span>
-        <${Button} variant="ghost" size="sm" disabled=${disabled || storage?.persisted} onClick=${() => run(() => assetCache.requestPersistence())}>${t('申请持久保存')}<//>
+        <span role="status" data-testid="asset-cache-persistence-status">${persistenceText(state)}</span>
+        <${Button} variant="secondary" size="sm" loading=${state.persistence === 'requesting'}
+            disabled=${disabled || storage?.persisted || !storage?.persistenceSupported}
+            onClick=${() => assetCache.requestPersistence()} data-testid="asset-cache-persist">${t('申请持久保存')}<//>
+        <p class="asset-cache__note">${t('持久保存可防止浏览器在空间不足时自动清理本站数据；是否授予由浏览器决定，通常不会弹出提示。主动清理站点数据仍会删除缓存。')}</p>
       </div>
       <p class="asset-cache__note">${t('缓存属于当前浏览器和网站地址。清理站点数据会删除缓存；新版本只需补齐变化文件。完整校验会读取本地文件，不重新下载全部素材。')}</p>
       <p class="asset-cache__note">${t('在线补齐共享服务器限速，进入对局后自动暂停。关闭此窗口可继续当前任务；关闭页面后已完成文件保留。')}</p>
