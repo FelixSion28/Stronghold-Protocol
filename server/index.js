@@ -29,6 +29,7 @@ import { WS_MAX_PAYLOAD, createSessionStack, attachWebSocket } from './http/webs
 import { DATA_SHIM_JS, createStaticHandler } from './http/static.js';
 import { createPackRegistry } from './packs.js';
 import { createAnnouncementStore } from './announcements.js';
+import { createAnnouncementNoticeMonitor } from './announcementNotices.js';
 import { MIME, COMPRESSIBLE, acceptsGzip, parseRange } from './http/files.js';
 import { BUILD_INPUTS, computeBuildTag, buildTag, resetBuildTag } from './http/buildTag.js';
 import { createRequestHandler } from './http/routes.js';
@@ -67,6 +68,7 @@ export async function startServer(opts = {}) {
   const data = opts.dataDir ? loadData(dataDir, { log }) : getData({ dir: dataDir, log });
   const { registry, lobby, network } = createSessionStack(opts, { data, log });
   const announcements = createAnnouncementStore({ dir: opts.announcementsDir, root: ROOT, log });
+  const announcementNotices = createAnnouncementNoticeMonitor({ store: announcements, network, log });
   // content packs (docs/PACKS.md): scanned now — the start log names them — and again whenever their folders change
   const packs = createPackRegistry({ publicDir, dataDir, packsDir }, { log });
   packs.refresh(true);
@@ -79,6 +81,8 @@ export async function startServer(opts = {}) {
   const server = http.createServer(createRequestHandler({ serveStatic, announcements, health: { startedAt, network, registry, lobby }, log }));
   server.on('clientError', answerClientError);
   const wss = attachWebSocket(server, { network, log });
+  // Prime before accepting connections; only commands submitted to a running server are broadcast.
+  announcementNotices.start();
 
   try {
     await new Promise((resolve, reject) => {
@@ -89,6 +93,7 @@ export async function startServer(opts = {}) {
       server.listen(port, host);
     });
   } catch (e) {
+    announcementNotices.close();
     network.close(); // stop heartbeat/sweep timers of the half-built server
     throw e;
   }
@@ -102,6 +107,7 @@ export async function startServer(opts = {}) {
   async function close() {
     if (closing) return closing;
     closing = (async () => {
+      announcementNotices.close();
       try { lobby.shutdown('shutdown'); } catch (e) { log.error('[shutdown] lobby', e); }
       network.close();
       await new Promise((resolve) => {

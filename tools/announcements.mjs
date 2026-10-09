@@ -4,30 +4,33 @@
 // node tools/announcements.mjs list [--json] [--dir <dir>]
 // node tools/announcements.mjs pin <id> [--dir <dir>]
 // node tools/announcements.mjs unpin [--dir <dir>]
+// node tools/announcements.mjs notify <id> [--dir <dir>]   explicitly notify currently connected real clients
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { createAnnouncementStore, readAnnouncementMarkdown } from '../server/announcements.js';
+import { enqueueAnnouncementNotice } from '../server/announcementNotices.js';
 
 const USAGE = `公告管理（正文与输出均为 UTF-8）：
   node tools/announcements.mjs publish --title <标题> --file <正文.md> [--id <ID>] [--pin] [--dir <目录>]
   node tools/announcements.mjs list [--json] [--dir <目录>]
   node tools/announcements.mjs pin <ID> [--dir <目录>]
   node tools/announcements.mjs unpin [--dir <目录>]
+  node tools/announcements.mjs notify <ID> [--dir <目录>]
   默认目录：runtime/announcements；可用 SP_ANNOUNCEMENTS_DIR 指定持久化目录。`;
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
   if (!command || command === '--help' || command === '-h') return { command: 'help' };
-  if (!['publish', 'list', 'pin', 'unpin'].includes(command)) throw new Error(`未知命令 ${command}`);
+  if (!['publish', 'list', 'pin', 'unpin', 'notify'].includes(command)) throw new Error(`未知命令 ${command}`);
   const options = { command, dir: undefined, title: undefined, file: undefined, id: undefined, pin: false, json: false };
   const seen = new Set();
   for (let i = 0; i < rest.length; i++) {
     const value = rest[i];
     if (!value.startsWith('--')) {
-      if (command !== 'pin' || options.id) throw new Error(`不支持的参数 ${value}`);
+      if (!['pin', 'notify'].includes(command) || options.id) throw new Error(`不支持的参数 ${value}`);
       options.id = value;
       continue;
     }
@@ -43,6 +46,7 @@ function parseArgs(argv) {
   }
   if (command === 'publish' && (!options.title || !options.file)) throw new Error('发布需要 --title 和显式指定的 --file <正文.md>');
   if (command === 'pin' && !options.id) throw new Error('置顶需要指定公告 ID');
+  if (command === 'notify' && !options.id) throw new Error('发送通知需要指定公告 ID');
   return options;
 }
 
@@ -77,6 +81,9 @@ export async function main(argv) {
       const markdown = readAnnouncementMarkdown(path.resolve(options.file));
       const item = store.publish({ id: options.id, title: options.title, markdown, pin: options.pin });
       writeUtf8(process.stdout, `已发布公告 ${item.id}${options.pin ? '，并设为唯一置顶' : ''}。`);
+    } else if (options.command === 'notify') {
+      await enqueueAnnouncementNotice({ store, id: options.id, log });
+      writeUtf8(process.stdout, '已提交发送命令，运行中的服务器将在约1秒内通知在线玩家。');
     } else if (options.command === 'pin') {
       store.pin(options.id);
       writeUtf8(process.stdout, `已置顶公告 ${options.id}。`);

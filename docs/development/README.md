@@ -24,12 +24,12 @@
 
 ## 当前基线
 
-核对日期：**2026-10-08，Asia/Shanghai**。最新同步已联网核实作者 master 与 fork master 同为 `3eced7bdba5aae11a325bd3dbe66cdf01361d2bd`；作者 v0.2.1 标签仍指向 `c2a2ef7`。这是核对当时的状态，不代表后续远端更新。
+上游核对日期：**2026-10-08，Asia/Shanghai**；最近本地开发核对：**2026-10-09**。上次同步已联网核实作者 master 与 fork master 同为 `3eced7bdba5aae11a325bd3dbe66cdf01361d2bd`；作者 v0.2.1 标签仍指向 `c2a2ef7`。这是核对当时的状态，不代表后续远端更新；公告开发没有操作远程。
 
 | 项目 | 已核实状态 |
 |---|---|
 | 分支 | `feat/IncreasePlayerCapacity` |
-| 最近本地开发 | [DEV-20261009-01](records/2026-10-09-01-announcements.md)：普通公告中心完成，92 个相关测试及 Edge 入口/免提示/滚动检查通过；局内显式弹窗待独立提交，未推送或部署 |
+| 最近本地开发 | [DEV-20261009-01](records/2026-10-09-01-announcements.md)：普通公告 `5fb686e`，局内显式通知与本次记录更新同一独立提交；两阶段完成及验证，未推送或部署 |
 | 本次上游修复合并前的 HEAD | `b4c6ebefe810ed6983a5a492d5e6ce6b123e74f9`，已推送并带 `v0.2.1-20p.2` 标签 |
 | 已合并的上游版本 | v0.2.1 ＋ Windows ZIP 中文名修复 #311，`3eced7bdba5aae11a325bd3dbe66cdf01361d2bd`；包版本仍为 0.2.1 |
 | 最近合并提交 | 与 [本次修复同步记录](records/2026-10-08-07-upstream-zipfix.md) 同一提交，保留两个父提交；初次 v0.2.1 合并为 `90e01ad` |
