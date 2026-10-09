@@ -22,8 +22,12 @@
 | 联防与投票 | `server/match/unite.js`、`match/unitePhase.js`、`public/js/ui/hud.js` | D013 固定组数上限至多五轮、全房原选人排序、逐轮真人多数票；本轮打完后取消后续全部，保留漏怪归属与累计收益 |
 | 领袖及两端战斗 | `gamedata.js`、`finalAssault.js`、`server/sim/`、`public/js/battle/runner.js` | 按人数共享血池、无人机 2% 机制、普通限伤保留 |
 | 审计与界面 | `server/match/audit.js`、`tools/matchrun.mjs`、队伍栏与表情 UI | 扩容事件可以回放审计，图标和表情仍能显示 |
+| 普通公告与紧急通知 | `server/index.js`、`server/http/routes.js`、`server/announcements.js`、`server/announcementNotices.js`、`public/js/main.js` | D014 普通发布不打断对局，显式 notify 独立队列；D015 仅公告目录 assets 的只读图片，全部 host、广播与关闭清理保留 |
+| 个人选择及战绩 | `match/intents.js`、`match/spDraft.js`、`choiceOverlay.js`、`ui/stats.js` | 个人 choiceId 与公共 draftId/groupId 不串用；二十席位末席本人仍有自己的统计、导入导出和完整回看 |
 
 每个有实际取舍的冲突记录「上游改了什么 / 我们需要什么 / 最终怎么结合 / 如何验证」。不能只写「冲突已解决」，也不能未经核对整文件选 ours/theirs。用户决定需要改变时先提出具体选项。
+
+v0.2.2 上游的 AI 后选开关默认关闭，与本分支 D004/D012 的固定组内手动真人优先不同；合并时不得用该开关关闭既定优先规则。`RESULT_LIMITS.players` 是单个战场的边界，`sources` 才是联防漏怪全房来源边界，不应一并扩大。
 
 上游原有文档随正常代码合并保持对应版本；本地开发流水集中在这里。本地能力与上游文档不同的地方用决定及任务记录说明，尽量减少反复向作者的大型文档追加本地历史。
 
