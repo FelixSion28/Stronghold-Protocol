@@ -12,6 +12,7 @@ import { PROTOCOL_VERSION, APP_VERSION } from '../../shared/constants.js';
 import { isAnnouncementId } from '../../shared/announcements.js';
 import { ANNOUNCEMENT_ASSET_URL_PREFIX } from '../../shared/announcementAssets.js';
 import { serveAnnouncementAsset } from './announcementAssets.js';
+import { ASSET_CACHE_PREFIX } from './assetCache.js';
 import { buildTag } from './buildTag.js';
 import { setSecurityHeaders, sendError, sendJson, splitUrl } from './common.js';
 
@@ -37,10 +38,11 @@ export function healthReport({ startedAt, network, registry, lobby }) {
  * @param {{ serveStatic: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse,
  *             rawPath: string, query: string) => Promise<void>,
  *           health: Parameters<typeof healthReport>[0], log: object,
- *           announcements?: ReturnType<typeof import('../announcements.js').createAnnouncementStore> }} deps
+ *           announcements?: ReturnType<typeof import('../announcements.js').createAnnouncementStore>,
+ *           assetCache?: ReturnType<typeof import('./assetCache.js').createAssetCacheHandler> }} deps
  * @returns {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void}
  */
-export function createRequestHandler({ serveStatic, health, log, announcements }) {
+export function createRequestHandler({ serveStatic, health, log, announcements, assetCache }) {
   async function handleRequest(req, res) {
     const url = req.url || '/';
     if (url.length > MAX_URL_LENGTH) { sendError(req, res, 414, '请求地址过长 · URI too long'); return; }
@@ -53,6 +55,11 @@ export function createRequestHandler({ serveStatic, health, log, announcements }
     }
     if (parts.rawPath === '/healthz') {
       sendJson(req, res, 200, healthReport(health));
+      return;
+    }
+    if (parts.rawPath.startsWith(ASSET_CACHE_PREFIX)) {
+      if (!assetCache) { sendJson(req, res, 503, { error: 'ASSET_CACHE_UNAVAILABLE' }); return; }
+      await assetCache.serve(req, res, parts.rawPath, parts.query);
       return;
     }
     if (parts.rawPath === '/api/announcements') {

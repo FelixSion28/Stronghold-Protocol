@@ -40,12 +40,14 @@
     "check:imports": "node tools/check-imports.mjs",
     "ci": "node tools/ci.mjs",
     "package": "node tools/package.mjs",
-    "package:lite": "node tools/package.mjs --lite"
+    "package:lite": "node tools/package.mjs --lite",
+    "assets:pack": "node tools/asset-cache-pack.mjs"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
+    "@zip.js/zip.js": "2.23.0",
     "htm": "^3.1.1",
     "pixi-spine": "^4.0.6",
     "pixi.js": "^7.4.2",
