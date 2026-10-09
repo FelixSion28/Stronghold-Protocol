@@ -49,6 +49,7 @@ import { settingsStore } from './ui/settings.js';
 import { GuideHost } from './ui/guide.js';
 import { AnnouncementHost, installAnnouncements } from './ui/announcements.js';
 import { UrgentAnnouncementHost, installUrgentAnnouncements } from './ui/urgentAnnouncements.js';
+import { AssetCacheHost, installAssetCache } from './ui/assetCache.js';
 import { installDeviceSupport } from './ui/device.js';
 import { LoadoutHost } from './screens/loadout.js';
 import { StatsHost } from './screens/stats.js';
@@ -300,6 +301,7 @@ function App() {
     <${GuideHost} />
     <${AnnouncementHost} />
     <${UrgentAnnouncementHost} />
+    <${AssetCacheHost} />
     <${LoadoutHost} />
     <${StatsHost} />
   </div>`;
@@ -358,6 +360,7 @@ async function boot() {
   wireNet();
   installAnnouncements({ appStore: store, selectRoute, net, restoreGraceMs: RESTORE_GRACE_MS });
   installUrgentAnnouncements({ net });
+  installAssetCache();
   installStatsRecorder(store); // follows the match on screen, so a 放弃模拟 can be recorded (ui/stats.js)
   installLoadoutSync({ net });
   installOwnershipSync({ net });

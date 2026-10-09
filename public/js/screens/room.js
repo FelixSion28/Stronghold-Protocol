@@ -20,6 +20,7 @@ import {
 import { toast, toastError } from '../ui/toasts.js';
 import { copyText } from '../ui/clipboard.js';
 import { GuideButton } from '../ui/guide.js';
+import { AssetCacheButton } from '../ui/assetCache.js';
 import { openStats } from './stats.js';
 import { SettingsButton } from '../ui/settings.js';
 import { LoadoutButton } from './loadout.js';
@@ -316,6 +317,7 @@ export function RoomScreen() {
   return html`<div class="screen room-screen">
     <header class="topbar">
       <div class="topbar__left">
+        <${AssetCacheButton} compact=${true} />
         <${Tooltip} text=${t('离开同盟')} placement="bottom">
           <${Button} variant="danger" size="lg" square=${true} icon="exit" loading=${busy === 'leave'} onClick=${leave} aria-label=${t('离开同盟')} />
         <//>

@@ -15,6 +15,7 @@ import { NAME_MAX_LEN, APP_VERSION, DEV_BUILD } from '../../../shared/constants.
 import { html, Button, Icon, MicroLabel, TextField, PingPill } from '../ui/components.js';
 import { GuideButton } from '../ui/guide.js';
 import { AnnouncementButton } from '../ui/announcements.js';
+import { AssetCacheButton } from '../ui/assetCache.js';
 import { openStats } from './stats.js';
 import { toast } from '../ui/toasts.js';
 import { net, identity } from '../net.js';
@@ -265,6 +266,7 @@ export function TitleScreen() {
       <p class="title-tag">${t('调配资金与干员，与同伴协同布防，抵御多波次进攻，直至击败敌方领袖。')}</p>
 
       <div class="title-login">
+        <div class="asset-cache-title-entry"><${AssetCacheButton} /></div>
         ${pendingJoin ? html`<div class="title-invite">
           <${Icon} name="key" />
           <span>${t('收到同盟邀请')}</span><b class="num">${pendingJoin}</b><span class="t-lo">${t('· 输入代号后将自动加入')}</span>
