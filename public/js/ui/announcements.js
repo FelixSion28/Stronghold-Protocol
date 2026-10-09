@@ -79,9 +79,10 @@ export function AnnouncementDialog({ state, actions = viewActions, bodyRef, onVi
   const title = detail?.title || selected?.title || t('公告详情');
   const date = detail?.publishedAt || selected?.publishedAt || '';
   const pin = state.selectedId && state.selectedId === state.pinnedId;
+  const suppressDisabled = !state.revision || !state.items.length;
   const footer = html`<div class="announcements__preferences">
-      <label class="announcements__suppress">
-        <input type="checkbox" checked=${state.suppressed} disabled=${!state.revision || !state.items.length}
+      <label class=${cx('announcements__suppress', suppressDisabled && 'is-disabled')}>
+        <input type="checkbox" checked=${state.suppressed} disabled=${suppressDisabled}
           onChange=${(event) => actions.setSuppressed(event.currentTarget.checked)} />
         <span>${t('下次不再显示')}</span>
       </label>

@@ -30,7 +30,7 @@
 .announcements__preferences { display: flex; flex-direction: column; gap: .055rem; min-width: 0; }
 .announcements__suppress { display: flex; align-items: center; gap: .09rem; font-size: max(.16rem, 12px); color: var(--text-md); cursor: pointer; }
 .announcements__suppress input { flex: none; width: max(.16rem, 15px); height: max(.16rem, 15px); margin: 0; accent-color: var(--mint-500); cursor: pointer; }
-.announcements__suppress:has(input:disabled) { opacity: .55; cursor: default; }
+.announcements__suppress.is-disabled { opacity: .55; cursor: default; }
 .announcements__preference-hint { color: var(--text-lo); font-size: max(.12rem, 10px); }
 .announcements__footer-buttons { display: flex; align-items: center; flex: none; gap: .1rem; }
 .announcements__status { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .16rem; min-height: 1.3rem; padding: .25rem .15rem; text-align: center; font-size: max(.17rem, 13px); }

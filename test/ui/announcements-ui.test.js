@@ -194,6 +194,7 @@ test('reader keeps history navigation, Markdown source, persistent preference an
   assert.ok(nodes.some((node) => classed(node, 'announcements__body') && node.props.tabIndex === '0'));
   nodes.find((node) => classed(node, 'announcements__back')).props.onClick();
   const footerNodes = [...walk(dialog.props.actions)];
+  assert.equal(classed(footerNodes.find((node) => node.type === 'label'), 'is-disabled'), false);
   const checkbox = footerNodes.find((node) => node.type === 'input');
   assert.equal(checkbox.props.checked, true);
   checkbox.props.onChange({ currentTarget: { checked: false } });
@@ -206,6 +207,7 @@ test('empty history cannot suppress an unknown publication, and detail failures 
   const actions = { close() {}, refresh() {}, setSuppressed() {}, select: (id) => calls.push(id) };
   const empty = AnnouncementDialog({ state: { ...createAnnouncementState(), open: true }, actions });
   assert.equal([...walk(empty.props.actions)].find((node) => node.type === 'input').props.disabled, true);
+  assert.ok([...walk(empty.props.actions)].some((node) => classed(node, 'announcements__suppress') && classed(node, 'is-disabled')));
   const failed = AnnouncementDialog({ state: { ...createAnnouncementState(), open: true, ...index, selectedId: item.id, detailError: 'failed' }, actions });
   const retry = [...walk(failed)].find((node) => node.props?.icon === 'refresh');
   retry.props.onClick();

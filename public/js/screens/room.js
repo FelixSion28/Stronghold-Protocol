@@ -1,6 +1,7 @@
 // Room screen (同盟等待室): configurable seat cards (avatar frame, name, ready state, AI badge, host crown),
 // host controls (difficulty picker, add/remove AI in co-op, start), invite code with copy code /
 // copy link, ready toggle and leave.
+// The capacity branch keeps manual humans first within every fixed draft group (D004); the room shows it read-only.
 //
 // Start rule (server/lobby.js): room.start needs every *other* human connected and ready; the
 // host's start counts as the host's ready. So 开始模拟 is enabled exactly then and sends room.start
@@ -19,6 +20,8 @@ import {
 import { toast, toastError } from '../ui/toasts.js';
 import { copyText } from '../ui/clipboard.js';
 import { GuideButton } from '../ui/guide.js';
+import { openStats } from './stats.js';
+import { SettingsButton } from '../ui/settings.js';
 import { LoadoutButton } from './loadout.js';
 import { net } from '../net.js';
 import { store, useStore, shallowEqual, emptyMatch, isSpectating } from '../store.js';
@@ -68,6 +71,18 @@ export function roomFacts(room, myId) {
     spectators: Array.isArray(room?.spectators) ? room.spectators.filter((s) => s && typeof s === 'object') : [],
     spectating: isSpectating(room, myId),
   };
+}
+
+/**
+ * The upstream 「AI 队友最后选择」 indicator follows D004 in this branch: online manual humans choose before AI,
+ * managed and disconnected seats within each fixed group. Solo rooms have no teammates; co-op always shows it on
+ * and read-only, including frames from an older server that omit the flag.
+ * @param {any} room room.state payload
+ * @returns {{ on: boolean, editable: boolean } | null}
+ */
+export function aiLastOption(room) {
+  if (!room || room.mode === 'solo') return null;
+  return { on: true, editable: false };
 }
 
 /** Invite link for a room code (current page URL with ?room=CODE). */
@@ -205,6 +220,20 @@ function CapacityPicker({ room, facts, busy, onPick }) {
   </div>`;
 }
 
+/** D004 is a fixed co-op rule, including managed and disconnected human seats after manual humans. */
+function AiLastRule({ option }) {
+  if (!option) return null;
+  return html`<div class="ailast">
+    <${Tooltip} text=${t('本分支固定由在线且未托管的博士先选，AI、托管和掉线席位随后选择')}>
+      <button type="button" role="switch" aria-checked=${option.on ? 'true' : 'false'}
+          class=${`dpick__opt ailast__opt${option.on ? ' is-active' : ''}`} disabled=${true}>
+        <${Icon} name="check" class=${option.on ? 'is-on' : ''} />${t('AI 队友最后选择')}
+      </button>
+    <//>
+    <span class="t-dim">${t('固定规则')}</span>
+  </div>`;
+}
+
 /** Room screen component. */
 export function RoomScreen() {
   const room = useStore((s) => s.room);
@@ -294,6 +323,8 @@ export function RoomScreen() {
           <${PingPill} ms=${conn.ping} online=${online} />
           <${MicroLabel}>${t('当前延迟')}<//>
         </div>
+        <${Button} variant="secondary" size="sm" icon="chart" class="stats-entry" onClick=${openStats} title=${t('统计数据')} aria-label=${t('统计数据')}>${t('统计')}<//>
+        <${SettingsButton} class="room-settings" variant="secondary" label=${t('设置')} />
         <${GuideButton} class="room-guide" variant="secondary" label=${t('玩法说明')} />
       </div>
       <div class="topbar__center">
@@ -325,7 +356,10 @@ export function RoomScreen() {
     <footer class="room-bar">
       <div class="room-bar__left">
         <span class="room-bar__label">${t('模拟难度')}<${MicroLabel}>DIFFICULTY<//></span>
-        <${DifficultyPicker} room=${room} isHost=${facts.isHost} busy=${busy} onPick=${setDifficulty} />
+        <div class="room-bar__opts">
+          <${DifficultyPicker} room=${room} isHost=${facts.isHost} busy=${busy} onPick=${setDifficulty} />
+          <${AiLastRule} option=${aiLastOption(room)} />
+        </div>
       </div>
       <div class="room-bar__center">
         <div class="ready-count" hidden=${!coop}>

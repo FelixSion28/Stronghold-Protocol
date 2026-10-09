@@ -1,10 +1,10 @@
 // Group-local permissions and independent clocks in the strategy screen and contingency pages.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeDraft, normalizeSp } from '../../public/js/ui/gameLogic.js';
+import { normalizeDraft, normalizeSp, normalizePersonalChoice } from '../../public/js/ui/gameLogic.js';
 import { otherBandGroups, teammateBands, draftClock, hasManualTeammateAfter } from '../../public/js/screens/bandDraft.js';
 import { ChoiceView, choicePage, defaultChoiceGroup, cardPickable, armedCard } from '../../public/js/ui/choiceOverlay.js';
-import { draftRequestScope } from '../../public/js/ui/gameActions.js';
+import { draftRequestScope, choiceRequestScope } from '../../public/js/ui/gameActions.js';
 import { validateC2S } from '../../shared/protocol.js';
 
 test('request identity omits absent legacy guards and retains current-stage guards', () => {
@@ -14,6 +14,17 @@ test('request identity omits absent legacy guards and retains current-stage guar
   }
   assert.deepEqual(draftRequestScope({ draftId: 'sp:3:1', groupId: 2 }), { draftId: 'sp:3:1', groupId: 2 });
   assert.equal(validateC2S({ t: 'g.bandSkip', ...draftRequestScope({ draftId: 'band:1', groupId: 2 }) }), null);
+});
+
+test('personal PREP choice identity stays separate from the public group draft scope', () => {
+  const grouped = { draftId: 'sp:3:1', groupId: 2 };
+  assert.deepEqual(choiceRequestScope(), {});
+  assert.deepEqual(choiceRequestScope(grouped), grouped);
+  assert.deepEqual(choiceRequestScope('personal:3:1'), { choiceId: 'personal:3:1' });
+  assert.deepEqual(choiceRequestScope({ choiceId: 'personal:3:1' }), { choiceId: 'personal:3:1' });
+  for (const scope of [choiceRequestScope(grouped), choiceRequestScope('personal:3:1')]) {
+    assert.equal(validateC2S({ t: 'g.choice', idx: 2, ...scope }), null);
+  }
 });
 
 const players = ['a1', 'a2', 'a3', 'b1', 'b2', 'b3'].map((playerId, seat) => ({
@@ -37,6 +48,23 @@ const hasClass = (node, cls) => node.props?.class?.split(/\s+/).includes(cls);
 const textOf = (node) => node == null || typeof node === 'boolean' ? ''
   : typeof node === 'string' || typeof node === 'number' ? String(node)
     : Array.isArray(node) ? node.map(textOf).join('') : textOf(node.props?.children);
+
+test('personal PREP choice retains two-tap confirmation and the prep clock without group tabs', () => {
+  const pub = { phase: 'PREP', round: 3, deadline: 9000, players, poolGroups };
+  const priv = { playerId: 'b1', alive: true, personalChoice: { id: 'personal:3:1', round: 3, cards: cards().slice(0, 3) } };
+  const sp = normalizePersonalChoice(pub, priv, 'b1');
+  const picked = [];
+  const nodes = [...walk(ChoiceView({ pub, sp, myId: 'b1', solo: false, personal: true, armed: 1, onConfirm: () => picked.push(1) }))];
+  assert.equal(nodes.find((node) => node.props?.role === 'dialog').props['aria-label'], '教鞭选择');
+  assert.ok(!nodes.some((node) => hasClass(node, 'spov__groups') || hasClass(node, 'spov__order')));
+  assert.equal(nodes.find((node) => node.type?.name === 'Countdown').props.deadline, pub.deadline);
+  const shownCards = nodes.filter((node) => hasClass(node, 'spcard'));
+  assert.equal(shownCards.length, 3);
+  assert.ok(shownCards.every((node) => !node.props.disabled));
+  const confirm = nodes.find((node) => node.props?.['data-testid'] === 'sp-confirm');
+  confirm.props.onClick();
+  assert.deepEqual(picked, [1]);
+});
 
 test('strategy availability and skip stay local while other-group picks create group markers', () => {
   const draft = normalizeDraft({ id: 'band:1', groups: [
