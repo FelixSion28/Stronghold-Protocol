@@ -39,6 +39,22 @@ node tools/announcements.mjs unpin
 
 支持标题、段落、粗体、斜体、列表、引用、分隔线、行内代码、围栏代码、安全链接和公告图片等常用 Markdown。原始 HTML 显示为文字；不是完整 Markdown 扩展实现，不支持任意网页或脚本。标题最多 120 个 Unicode 字符，正文最多 50,000 个 UTF-16 字符且不超过 128 KiB，最多保存 2,000 条公告。
 
+## 链接与复制
+
+网盘等 HTTP/HTTPS 链接可以直接点击，在新标签页中访问，游戏页面继续保留。推荐用 Markdown 为链接标明用途；直接粘贴完整网址或使用尖括号网址也能点击：
+
+```markdown
+[下载素材包](https://pan.example.com/s/示例?pwd=a1b2)
+
+https://pan.example.com/s/示例?pwd=a1b2
+
+<https://pan.example.com/s/示例?pwd=a1b2>
+
+提取码：a1b2
+```
+
+将示例网址替换成实际分享链接，提取码另写一行。网址参数和片段标识会保留；普通公告、紧急通知正文均可用鼠标选中文字后按 `Ctrl+C` 或右键复制，也可以复制代码和链接文字。行内/围栏代码、原始 HTML 中的网址保留文字；没有 `http://` 或 `https://` 前缀的网址不自动变成链接。
+
 ## 在公告中放图片
 
 图片与公告一起单独管理，不放在 `public`。使用默认目录时，将图片放进项目下的 `runtime/announcements/assets`（没有这个子目录时自行创建），例如：

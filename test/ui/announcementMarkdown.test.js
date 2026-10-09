@@ -123,6 +123,111 @@ describe('announcement Markdown subset', () => {
   });
 });
 
+describe('announcement Markdown automatic HTTP links', () => {
+  test('bare netdisk URLs keep query tokens, fragments and underscores; extraction codes stay text', () => {
+    const href = 'https://pan.baidu.com/s/1share_A-b?pwd=a_B2&token=c%2Fd#download_part';
+    const source = `下载：${href} 提取码：a_B2`, output = render(source);
+    const link = elements(output).find((v) => v.type === 'a');
+    assert.equal(link.props.href, href);
+    assert.equal(textOf(link), href);
+    assert.equal(link.props.target, '_blank');
+    assert.equal(link.props.rel, 'noopener noreferrer');
+    assert.equal(textOf(output), source);
+    assert.equal(elements(output).filter((v) => ['strong', 'em'].includes(v.type)).length, 0);
+    assert.equal(textOf(output).slice(textOf(output).indexOf('提取码')), '提取码：a_B2');
+  });
+
+  test('angle URLs become safe links, preserve the exact destination and do not swallow following text', () => {
+    const href = 'HTTPS://pan.baidu.com/s/share_A?pwd=12_3#files';
+    const output = render(`<${href}> 后文 http://example.com/download.zip`);
+    const links = elements(output).filter((v) => v.type === 'a');
+    assert.deepEqual(links.map((v) => v.props.href), [href, 'http://example.com/download.zip']);
+    assert.equal(textOf(output), `${href} 后文 http://example.com/download.zip`);
+    assert.ok(links.every((v) => v.props.target === '_blank' && v.props.rel === 'noopener noreferrer'));
+  });
+
+  test('sentence punctuation stays outside URLs, including paired parentheses and Chinese extraction-code separators', () => {
+    for (const punctuation of ['.', ',', ';', ':', '!', '?', '...', '，', '。', '；', '：', '！', '？', '、', '…', '）', '】', '”', '’']) {
+      const href = 'https://example.com/path_(v2)?token=a_B#part_1';
+      const output = render(`链接 ${href}${punctuation} 提取码：abcd`);
+      assert.equal(elements(output).find((v) => v.type === 'a').props.href, href, punctuation);
+      assert.equal(textOf(output), `链接 ${href}${punctuation} 提取码：abcd`, punctuation);
+    }
+    const output = render('(https://example.com/path_(v2)).\nhttps://example.com/a[0]?items=a,b，提取码：abcd');
+    assert.deepEqual(elements(output).filter((v) => v.type === 'a').map((v) => v.props.href),
+      ['https://example.com/path_(v2)', 'https://example.com/a[0]?items=a,b']);
+    assert.equal(textOf(output), '(https://example.com/path_(v2)).https://example.com/a[0]?items=a,b，提取码：abcd');
+  });
+
+  test('automatic links work in headings, lists, quotes and strong text with ordinary Markdown precedence', () => {
+    const source = '# https://example.com/title\n\n- **https://example.com/download**\n\n> https://example.com/quote';
+    const output = render(source), nodes = elements(output);
+    assert.deepEqual(nodes.filter((v) => v.type === 'a').map((v) => v.props.href),
+      ['https://example.com/title', 'https://example.com/download', 'https://example.com/quote']);
+    assert.ok(elements(nodes.find((v) => v.type === 'strong')).some((v) => v.type === 'a'));
+  });
+
+  test('explicit links remain one anchor; image alt, raw HTML and code never gain automatic anchors', () => {
+    const source = '[https://inner.example/a_b <https://inner.example/angle>](https://outer.example)';
+    const nodes = elements(render(source)), links = nodes.filter((v) => v.type === 'a');
+    assert.equal(links.length, 1);
+    assert.equal(links[0].props.href, 'https://outer.example');
+    assert.equal(textOf(links[0]), 'https://inner.example/a_b <https://inner.example/angle>');
+    for (const literal of ['`https://example.com/a_b`', '```text\nhttps://example.com/a_b\n<https://example.com>\n```',
+      '<img src="https://example.com/image.png">', '<div>https://example.com/plain\n<https://example.com/angle>\n</div>',
+      '![https://example.com/alt](assets/banner.png)', '![图](https://example.com/image.png)', '![图][https://example.com/ref]',
+      '[https://example.com/ref][reference]']) {
+      assert.ok(!elements(render(literal)).some((v) => v.type === 'a'), literal);
+    }
+    assert.equal(safeAnnouncementImageSrc('https://example.com/banner.png'), null);
+    assert.equal(elements(render('[![图](assets/banner.png)](https://example.com/full)')).filter((v) => v.type === 'a').length, 1);
+  });
+
+  test('rejected and incomplete Markdown link/image syntax cannot produce partial automatic anchors', () => {
+    for (const source of ['[下载](javascript:https://example.com)', '[下载](https://example.com/ bad-title)',
+      '[下载](https://example.com/未闭合', '[未闭合标签 https://example.com/download',
+      '![图](https://example.com/not-an-announcement-asset.png)', '![图](https://example.com/未闭合',
+      '![未闭合图 https://example.com/download', '<https://example.com/未闭合', '<https://example.com/ 有空格>',
+      '<https://example.com/ >', '<https://example.com/path<https://inner.example>>']) {
+      const output = render(source);
+      assert.equal(textOf(output), source, source);
+      assert.ok(!elements(output).some((v) => v.type === 'a'), source);
+    }
+    const source = '[下载](https://example.com/未闭合\n下一行 https://example.com/valid';
+    const links = elements(render(source)).filter((v) => v.type === 'a');
+    assert.equal(links.length, 1);
+    assert.equal(links[0].props.href, 'https://example.com/valid');
+  });
+
+  test('unsafe schemes, encoded/credential destinations, escaped angles and URLs inside words stay nonclickable', () => {
+    for (const source of ['javascript:https://example.com', 'data:https://example.com', 'file:https://example.com',
+      '//example.com/path', 'www.example.com', 'https:///example.com/path', 'https://user:pass@example.com/path',
+      'https://example.com/%ZZ', 'https://example.com/\\bad', 'https://example.com/java&#x09;script:',
+      '<javascript:alert(1)>', '<https://user:pass@example.com/path>', '\\<https://example.com/path>',
+      'xhttps://example.com/path', 'prefix_https://example.com/path', 'https%3a%2f%2fexample.com/path']) {
+      assert.ok(!elements(render(source)).some((v) => v.type === 'a'), source);
+    }
+    const href = 'https://example.com/download?token=%26%22%3C#files_1';
+    const link = elements(render(href)).find((v) => v.type === 'a');
+    assert.equal(link.props.href, href);
+    assert.ok(Object.keys(link.props).every((key) => !/^on/i.test(key)));
+    assert.ok(!('dangerouslySetInnerHTML' in link.props));
+  });
+
+  test('automatic anchors share the node budget and repeated incomplete candidates stay bounded literal text', () => {
+    const source = 'https://x.test '.repeat(3500);
+    const output = render(source);
+    assert.equal(parseAnnouncementMarkdown(source).truncated, true);
+    assert.ok(elements(output).filter((v) => v.type === 'a').length <= ANNOUNCEMENT_MARKDOWN_LIMITS.nodes / 2);
+    assert.equal(elements(output).filter((v) => v.props.class === 'announcement-markdown__notice').length, 1);
+    for (const literal of ['<https://'.repeat(5000), '[https://'.repeat(5000), 'https://%ZZ/'.repeat(4000)]) {
+      assert.equal(textOf(render(literal)), literal);
+      assert.ok(!elements(render(literal)).some((v) => v.type === 'a'));
+      assert.equal(parseAnnouncementMarkdown(literal).truncated, false);
+    }
+  });
+});
+
 describe('announcement Markdown images', () => {
   test('all documented source forms resolve only to the dedicated announcement-asset route', () => {
     for (const source of ['assets/banner.png', './assets/banner.png', `${ANNOUNCEMENT_ASSET_URL_PREFIX}banner.png`]) {

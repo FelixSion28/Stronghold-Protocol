@@ -39,7 +39,7 @@
 .announcements__list-warning { color: var(--amber); }
 .announcements__mobile-toggle { display: none; }
 
-.announcement-markdown { color: var(--text-md); font-size: max(.18rem, 14px); line-height: 1.8; overflow-wrap: anywhere; }
+.announcement-markdown { color: var(--text-md); font-size: max(.18rem, 14px); line-height: 1.8; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
 .announcement-markdown > :first-child { margin-top: 0; }
 .announcement-markdown > :last-child { margin-bottom: 0; }
 .announcement-markdown p, .announcement-markdown ul, .announcement-markdown ol, .announcement-markdown blockquote, .announcement-markdown pre { margin: 0 0 .18rem; }

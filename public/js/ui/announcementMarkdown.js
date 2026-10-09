@@ -1,8 +1,8 @@
 // Safe, deliberately small Markdown renderer for text announcements (Preact + htm).
 // Supported: paragraphs with visible line breaks, ATX headings (1–6), ordered/unordered lists
 // with indented continuations, block quotes, rules, fenced code, inline code, strong/emphasis,
-// backslash escapes, inline links and images (optionally with a quoted title).
-// This is not full CommonMark: tables, reference links/images, autolinks and HTML stay text.
+// backslash escapes, inline links/images (optionally with a quoted title), bare HTTP(S) URLs and <HTTP(S)> links.
+// This is not full CommonMark: tables, reference links/images, other autolinks and HTML stay text.
 // Source never becomes HTML; only the fixed elements below are created as Preact vnodes.
 // Images use only the private announcement-assets route, with no referrer and at most 32 per document.
 // CSS: .announcement-markdown, __code (scrollable pre), __inline-code, __image and __notice.
@@ -91,6 +91,7 @@ function inlineIndexes(source) {
   let lineEnd = source.indexOf('\n');
   if (lineEnd < 0) lineEnd = source.length;
   for (const tag of source.matchAll(/<(\/?)([a-z][\w:-]*)(?=[ \t/>])[^<>\n]*>/gi)) {
+    if (/^<https?:\/\//i.test(tag[0])) continue; // angle autolinks are not opening HTML elements
     while (tag.index >= lineEnd && lineEnd < source.length) {
       const next = source.indexOf('\n', lineEnd + 1);
       lineEnd = next < 0 ? source.length : next;
@@ -120,6 +121,28 @@ function inlinePlain(nodes) {
   return nodes.map((node) => node.type === 'break' ? ' ' : node.text ?? inlinePlain(node.children || [])).join('');
 }
 
+// Read each candidate once, including rejected destinations; never retry inner URL-shaped substrings.
+function bareUrlAt(source, at) {
+  if (!/^https?:\/\//i.test(source.slice(at, at + 8))
+    || /[a-z\d_@/\\:.%<\-]/i.test(source[at - 1] || '')) return null;
+  let end = at;
+  const opens = { '(': 0, '[': 0, '{': 0 }, pairs = { ')': '(', ']': '[', '}': '{' };
+  const unmatched = new Set();
+  while (end < source.length && !/[\s\u0000-\u001f\u007f-\u009f<>`"'*，。；：！？、…“”‘’「」『』《》（）【】]/u.test(source[end])) {
+    const char = source[end];
+    if (char in opens) opens[char]++;
+    else if (char in pairs) {
+      if (opens[pairs[char]]) opens[pairs[char]]--;
+      else unmatched.add(end);
+    }
+    end++;
+  }
+  let urlEnd = end;
+  while (urlEnd > at && (/[.,;:!?]/.test(source[urlEnd - 1]) || unmatched.has(urlEnd - 1))) urlEnd--;
+  const href = safeAnnouncementHref(source.slice(at, urlEnd));
+  return { end, urlEnd, href };
+}
+
 function parseInline(source, state, allowLinks = true, allowImages = true) {
   const { nextTick, closing, htmlEnd } = inlineIndexes(source);
   const frames = [{ children: [] }];
@@ -144,9 +167,13 @@ function parseInline(source, state, allowLinks = true, allowImages = true) {
       appendText(lines[line]);
     }
   };
+  const appendAutoLink = (href) => {
+    if (!state.take()) return;
+    append({ type: 'link', href, children: [{ type: 'text', text: href }] });
+  };
   for (let i = 0; i < source.length && !state.truncated;) {
     const char = source[i];
-    if (char === '\\' && (/[\\`*{}[\]()#+\-.!_>~|]/.test(source[i + 1] || '')
+    if (char === '\\' && (/[\\`*{}[\]()#+\-.!_<>~|]/.test(source[i + 1] || '')
       || (!allowImages && /["']/.test(source[i + 1] || '')))) {
       appendText(source[i + 1]); i += 2; continue;
     }
@@ -156,6 +183,18 @@ function parseInline(source, state, allowLinks = true, allowImages = true) {
       let text = source.slice(i + code.width, code.end).replace(/\n/g, ' ');
       if (text.startsWith(' ') && text.endsWith(' ') && /\S/.test(text)) text = text.slice(1, -1);
       append({ type: 'code', text }); i = code.end + code.width; continue;
+    }
+    if (char === '<' && /^<https?:\/\//i.test(source.slice(i, i + 9))) {
+      const close = source.indexOf('>', i + 1), lineEnd = source.indexOf('\n', i + 1);
+      if (close < 0 || (lineEnd >= 0 && lineEnd < close)) {
+        const end = lineEnd < 0 ? source.length : lineEnd;
+        appendLiteral(source.slice(i, end)); i = end; continue;
+      }
+      const raw = source.slice(i + 1, close);
+      const href = allowLinks && raw === raw.trim() ? safeAnnouncementHref(raw) : null;
+      if (href) appendAutoLink(href);
+      else appendLiteral(source.slice(i, close + 1));
+      i = close + 1; continue;
     }
     const endHtml = htmlEnd.get(i);
     if (endHtml != null) {
@@ -183,15 +222,25 @@ function parseInline(source, state, allowLinks = true, allowImages = true) {
           } else appendLiteral(source.slice(i, end + 1));
           i = end + 1; continue;
         }
-        if (image || suffix === '[') {
+        if (image || suffix === '(' || suffix === '[') {
           const lineEnd = source.indexOf('\n', endLabel + 1);
           const literalEnd = suffix === '(' || suffix === '[' ? (lineEnd < 0 ? source.length : lineEnd) : endLabel + 1;
           appendLiteral(source.slice(i, literalEnd)); i = literalEnd; continue;
         }
-      } else if (image) {
+      } else {
         const lineEnd = source.indexOf('\n', i);
         const literalEnd = lineEnd < 0 ? source.length : lineEnd;
         appendLiteral(source.slice(i, literalEnd)); i = literalEnd; continue;
+      }
+    }
+    if (allowLinks && (char === 'h' || char === 'H')) {
+      const url = bareUrlAt(source, i);
+      if (url) {
+        if (url.href) {
+          appendAutoLink(url.href);
+          appendText(source.slice(url.urlEnd, url.end));
+        } else appendLiteral(source.slice(i, url.end));
+        i = url.end; continue;
       }
     }
     if (char === '*' || char === '_') {
