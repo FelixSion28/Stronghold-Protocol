@@ -397,10 +397,12 @@ export const C2S = {
   // Upstream compatibility: this branch exposes the manual-human-first rule as fixed on; disabling is refused.
   'room.setAiPicksLast': { on: isBool },
   'room.addBot': {},
-  'room.removeBot': { seat: (v) => isInt(v, 0, MAX_SEATS - 1) },
+  'room.removeBot': { seat: (v) => isInt(v, 0, MAX_SEATS - 1), playerId: isId, $optional: ['playerId'] },
   // the host removes another human before the match (server/lobby.js kick; community report #17); playerId = the one the
   // host confirmed — a seat that changed hands meanwhile is refused
   'room.kick': { seat: (v) => isInt(v, 0, MAX_SEATS - 1), playerId: isId },
+  // Transfer names a current human, never a position that may have changed while the dialog was open.
+  'room.transferHost': { playerId: isId },
   'room.start': {},
   'room.rerollSetup': { setupRevision: (v) => isInt(v, 0, 2 ** 31) },
   'room.cancelReroll': { voteId: (v) => isInt(v, 1, 2 ** 31) },

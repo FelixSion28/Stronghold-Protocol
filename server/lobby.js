@@ -5,7 +5,8 @@
 //   * Rooms are keyed by 4-letter codes from an unambiguous alphabet (no I/O, letters only). Join codes are
 //     case-insensitive.
 //   * 'solo' rooms hold exactly one human and never bots. 'coop' rooms offer 4 / 8 / 10 / 16 / 20 seats (humans + AI bots).
-//     Humans and bots take the lowest free seat index; seat indexes never compact.
+//     Humans and bots take the lowest free seat index. In a waiting room the host occupies seat 0;
+//     host transfer/migration swaps only the host and seat 0. Running matches retain their fixed seats.
 //   * ▸ Being in a LOBBY room and sending room.create / room.join implicitly leaves it. While your room is
 //     in a match, create/join of another room fails with ROOM_STARTED (send g.leave or room.leave first).
 //   * Host-only: room.setDifficulty, room.setAiPicksLast, room.addBot, room.removeBot, room.kick, room.start.
@@ -99,7 +100,7 @@
 //     a player seat (the seat is kept and given back on resume).
 
 import { randomBytes, randomInt } from 'node:crypto';
-import { ERR, DEFAULT_SEATS, ROOM_CAPACITIES, MAX_SPECTATORS, ROOM_CODE_LEN, modeIdFor } from '../shared/constants.js';
+import { ERR, DEFAULT_SEATS, ROOM_CAPACITIES, MAX_SEATS, MAX_SPECTATORS, ROOM_CODE_LEN, modeIdFor } from '../shared/constants.js';
 import { checkLoadout, checkLoadoutOps, cultivationCharIds, checkNotOwned, checkDiyPicks } from '../shared/protocol.js';
 import { encode, isDroppable, isErrCode, sendRaw, sendSession } from './net.js';
 import { getData as defaultGetData, lookup } from './data.js';
@@ -182,6 +183,8 @@ export class Room {
     this.aiPicksLast = mode !== 'solo';
     /** @type {string | null} */
     this.hostId = null;
+    /** @type {number | null} Server policy; null leaves AI seats bounded only by room capacity. */
+    this.maxAiPerRoom = null;
     /** @type {(Seat | null)[]} */
     this.capacity = mode === 'solo' ? 1 : capacity;
     this.seats = new Array(this.capacity).fill(null);
@@ -228,6 +231,7 @@ export class Room {
       t: 'room.state',
       code: this.code,
       hostId: this.hostId,
+      maxAiPerRoom: this.maxAiPerRoom,
       mode: this.mode,
       difficulty: this.difficulty,
       capacity: this.capacity,
@@ -262,6 +266,8 @@ export class Lobby {
     this.now = now;
     this.seedFn = seedFn || (() => randomInt(2 ** 32));
     this.opts = { ...LOBBY_DEFAULTS, ...options };
+    /** @type {number | null} Owner-controlled AI ceiling, independent from the distributed bundle defaults. */
+    this.maxAiPerRoom = null;
     /** @type {Map<string, Room>} */
     this.rooms = new Map();
     this.discovery = new LobbyDiscovery(this);
@@ -275,6 +281,29 @@ export class Lobby {
 
   /** @param {string} code @returns {Room | null} */
   getRoom(code) { return this.rooms.get(String(code).toUpperCase()) || null; }
+
+  /** Update the owner policy atomically; active matches keep their roster until their next waiting room. */
+  setAiLimit(limit) {
+    if (limit !== null && (!Number.isInteger(limit) || limit < 0 || limit >= MAX_SEATS)) {
+      throw new RangeError(`AI limit must be null or an integer from 0 to ${MAX_SEATS - 1}`);
+    }
+    if (this.maxAiPerRoom === limit) return;
+    this.maxAiPerRoom = limit;
+    for (const room of this.rooms.values()) {
+      room.maxAiPerRoom = limit;
+      if (!room.match) this.trimBots(room);
+      this.broadcastState(room);
+    }
+  }
+
+  /** Preserve the earliest AI seats and every human; remove only surplus trailing AI seats. */
+  trimBots(room) {
+    if (room.match || this.maxAiPerRoom === null) return;
+    let surplus = room.seats.filter((s) => s?.isBot).length - this.maxAiPerRoom;
+    for (let i = room.seats.length - 1; i >= 0 && surplus > 0; i--) {
+      if (room.seats[i]?.isBot) { room.seats[i] = null; surplus--; }
+    }
+  }
 
   /** Counters for /healthz. */
   stats() {
@@ -351,6 +380,7 @@ export class Lobby {
       case 'room.addBot': return this.addBot(session);
       case 'room.removeBot': return this.removeBot(session, msg);
       case 'room.kick': return this.kick(session, msg);
+      case 'room.transferHost': return this.transferHost(session, msg);
       case 'room.start': return this.start(session);
       case 'room.rerollSetup': return this.rerollSetup(session, msg);
       case 'room.cancelReroll': return this.rerollSetup(session, msg, true);
@@ -429,6 +459,7 @@ export class Lobby {
     if (!code) return fail(ERR.INTERNAL, 'no room code available');
     if (cur) this.removeMember(cur, session.playerId);
     const room = new Room(code, mode, difficulty, this.now(), capacity);
+    room.maxAiPerRoom = this.maxAiPerRoom;
     room.ownerKey = key;
     room.seats[0] = this.humanSeat(0, session);
     room.hostId = session.playerId;
@@ -586,6 +617,9 @@ export class Lobby {
     if (room.mode === 'solo') return fail(ERR.ROOM_FULL, 'solo rooms cannot have AI teammates');
     const idx = room.freeSeat();
     if (idx < 0) return fail(ERR.ROOM_FULL);
+    if (this.maxAiPerRoom !== null && room.seats.filter((s) => s?.isBot).length >= this.maxAiPerRoom) {
+      return fail(ERR.AI_LIMIT);
+    }
     const used = new Set(room.seats.filter((s) => s && s.isBot).map((s) => s.name));
     const name = BOT_NAMES.find((n) => !used.has(n)) || `AI·${idx + 1}`;
     let playerId;
@@ -595,7 +629,7 @@ export class Lobby {
     return OK;
   }
 
-  removeBot(session, { seat }) {
+  removeBot(session, { seat, playerId }) {
     const room = this.roomOf(session);
     if (!room) return fail(ERR.NOT_IN_ROOM);
     if (room.hostId !== session.playerId) return fail(ERR.NOT_HOST);
@@ -603,8 +637,29 @@ export class Lobby {
     this.dropReplay(room, session.playerId);
     const target = room.seats[seat];
     if (!target || !target.isBot) return fail(ERR.BAD_TARGET, 'seat does not hold an AI');
+    if (playerId !== undefined && target.playerId !== playerId) return fail(ERR.BAD_TARGET, 'seat changed hands');
     room.seats[seat] = null;
     this.broadcastState(room);
+    return OK;
+  }
+
+  /** Waiting-room handover to a connected human; identity is checked again after the confirmation dialog. */
+  transferHost(session, { playerId }) {
+    const room = this.roomOf(session);
+    if (!room) return fail(ERR.NOT_IN_ROOM);
+    if (room.hostId !== session.playerId) return fail(ERR.NOT_HOST);
+    if (room.match) return fail(ERR.ROOM_STARTED);
+    const target = room.seatOf(playerId);
+    const targetSession = this.registry.byId(playerId);
+    if (!target || target.isBot || target.left || !target.connected || target.playerId === session.playerId
+      || !targetSession?.connected || targetSession.roomCode !== room.code) {
+      return fail(ERR.BAD_TARGET, 'target must be another connected human in this room');
+    }
+    this.dropReplay(room, session.playerId);
+    room.hostId = playerId;
+    this.promoteHostSeat(room);
+    this.broadcastState(room);
+    this.log.info(`[lobby] ${room.code} host transferred to ${target.name}`);
     return OK;
   }
 
@@ -642,6 +697,7 @@ export class Lobby {
       if (s.playerId !== room.hostId && (!s.connected || !s.ready)) return fail(ERR.NOT_READY);
     }
     const bots = room.seats.filter((s) => s && s.isBot);
+    if (this.maxAiPerRoom !== null && bots.length > this.maxAiPerRoom) return fail(ERR.AI_LIMIT);
     if (humans.length < 1 || (room.mode === 'solo' && (humans.length !== 1 || bots.length > 0))) {
       return fail(ERR.BAD_MSG, 'invalid seat configuration');
     }
@@ -823,6 +879,8 @@ export class Lobby {
     for (const s of room.spectators) if (!s.connected) this.startGrace(room, s);
     const host = room.hostId ? room.seatOf(room.hostId) : null;
     if (!host || host.isBot || host.left) this.migrateHost(room);
+    this.trimBots(room);
+    this.promoteHostSeat(room);
     if (room.activeHumans().length === 0) this.disposeRoom(room, 'empty');
     else this.broadcastState(room);
   }
@@ -1071,7 +1129,21 @@ export class Lobby {
     const pick = humans.find((s) => s.connected) || humans[0] || null;
     const prev = room.hostId;
     room.hostId = pick ? pick.playerId : null;
+    this.promoteHostSeat(room);
     if (pick && prev !== pick.playerId) this.log.info(`[lobby] ${room.code} host → ${pick.name}`);
+  }
+
+  /** Change waiting-room seat order only; a running match owns its original seats and fixed pool groups. */
+  promoteHostSeat(room) {
+    if (room.match || !room.hostId) return;
+    const host = room.seatOf(room.hostId);
+    if (!host || host.isBot || host.left || host.seat === 0) return;
+    const oldIndex = host.seat;
+    const first = room.seats[0];
+    room.seats[0] = host;
+    host.seat = 0;
+    room.seats[oldIndex] = first;
+    if (first) first.seat = oldIndex;
   }
 
   startGrace(room, seat) {

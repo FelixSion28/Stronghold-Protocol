@@ -78,6 +78,15 @@ test('refusal list: 0.1.x\'s entries and what 0.2.0 leaves out, at the path or u
   for (const p of ['server/index.js', 'docs/research/03-operators.json', 'testing.md', 'public/js/review.js']) assert.ok(!isRefused(p), p);
 });
 
+test('server owner CLI and guide ship while persistent AI settings stay private', () => {
+  const { keep, drop } = selectTracked([
+    'server/serverSettings.js', 'tools/server-settings.mjs', 'docs/SERVER_SETTINGS.md',
+    'runtime/server-settings.json', 'runtime/server-a/server-settings.json',
+  ]);
+  assert.deepEqual(keep, ['docs/SERVER_SETTINGS.md', 'server/serverSettings.js', 'tools/server-settings.mjs']);
+  assert.deepEqual(drop, ['runtime/server-a/server-settings.json', 'runtime/server-settings.json']);
+});
+
 test('the real tracked tree: runtime in, the rest out; every shipped import, npm entry point, research table and spawned tool ships', () => {
   const p = plan(ROOT, { lite: true, allowDirty: true, scan: false, measure: false });
   assert.deepEqual(p.problems, []);

@@ -30,6 +30,7 @@ import { DATA_SHIM_JS, createStaticHandler } from './http/static.js';
 import { createPackRegistry } from './packs.js';
 import { createAnnouncementStore } from './announcements.js';
 import { createAnnouncementNoticeMonitor } from './announcementNotices.js';
+import { createServerSettings } from './serverSettings.js';
 import { MIME, COMPRESSIBLE, acceptsGzip, parseRange } from './http/files.js';
 import { BUILD_INPUTS, computeBuildTag, buildTag, resetBuildTag } from './http/buildTag.js';
 import { createRequestHandler } from './http/routes.js';
@@ -48,6 +49,7 @@ export {
  * @param {{
  *   port?: number, host?: string, quiet?: boolean, log?: object,
  *   publicDir?: string, dataDir?: string, sharedDir?: string, packsDir?: string, announcementsDir?: string,
+ *   serverSettingsDir?: string,
  *   MatchClass?: Function, seedFn?: () => number,
  *   lobbyGraceMs?: number, reconnectWindowMs?: number, heartbeatMs?: number, helloTimeoutMs?: number,
  *   ratePerSec?: number, rateBurst?: number, maxConnections?: number, maxRooms?: number,
@@ -59,6 +61,7 @@ export {
  *                     lobby: import('./lobby.js').Lobby, network: import('./net.js').Network,
  *                     registry: import('./net.js').SessionRegistry, packs: ReturnType<typeof createPackRegistry>,
  *                     announcements: ReturnType<typeof createAnnouncementStore>,
+ *                     serverSettings: ReturnType<typeof createServerSettings>,
  *                     close: () => Promise<void> }>}
  */
 export async function startServer(opts = {}) {
@@ -68,7 +71,10 @@ export async function startServer(opts = {}) {
 
   // The process-wide singleton serves the default data dir; a custom dir (tests) gets its own copy.
   const data = opts.dataDir ? loadData(dataDir, { log }) : getData({ dir: dataDir, log });
+  const serverSettings = createServerSettings({ dir: opts.serverSettingsDir, root: ROOT, log,
+    onChange: (next) => lobby.setAiLimit(next.maxAiPerRoom) });
   const { registry, lobby, network } = createSessionStack(opts, { data, log });
+  lobby.setAiLimit(serverSettings.get().maxAiPerRoom);
   const announcements = createAnnouncementStore({ dir: opts.announcementsDir, root: ROOT, log });
   const announcementNotices = createAnnouncementNoticeMonitor({ store: announcements, network, log });
   // content packs (docs/PACKS.md): scanned now — the start log names them — and again whenever their folders change
@@ -86,6 +92,7 @@ export async function startServer(opts = {}) {
   const wss = attachWebSocket(server, { network, log });
   // Prime before accepting connections; only commands submitted to a running server are broadcast.
   announcementNotices.start();
+  serverSettings.start();
 
   // The address actually bound. The default may fall back to IPv4; the returned host and url follow that.
   let boundHost;
@@ -117,6 +124,7 @@ export async function startServer(opts = {}) {
     if (bound === null) throw lastError;
     boundHost = bound;
   } catch (e) {
+    serverSettings.close();
     assetCache.close();
     announcementNotices.close();
     network.close(); // stop heartbeat/sweep timers of the half-built server
@@ -132,6 +140,7 @@ export async function startServer(opts = {}) {
   async function close() {
     if (closing) return closing;
     closing = (async () => {
+      serverSettings.close();
       assetCache.close();
       announcementNotices.close();
       try { lobby.shutdown('shutdown'); } catch (e) { log.error('[shutdown] lobby', e); }
@@ -146,7 +155,7 @@ export async function startServer(opts = {}) {
     return closing;
   }
 
-  return { port: actualPort, host: boundHost, url, server, wss, lobby, network, registry, packs, announcements, close };
+  return { port: actualPort, host: boundHost, url, server, wss, lobby, network, registry, packs, announcements, serverSettings, close };
 }
 
 // `node server/index.js` / npm start: listen, print the banner, stop on SIGINT / SIGTERM (http/boot.js).
