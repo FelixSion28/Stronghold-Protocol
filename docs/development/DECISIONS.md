@@ -216,3 +216,24 @@
 - 局内自动移交只变更房主身份，不改本局座位和固定卡池组；结束回到等候房后归 P1。移除 AI 的新客户端请求携带 playerId 防止陈旧座位操作，旧无身份请求继续兼容。
 - 原因：用户希望房主始终是等待室首位，同时必须保留开战后的固定组。界面排序而不换实际座位的方案未采用。
 - 依据：[本次房间管理记录](records/2026-10-10-07-room-management.md)；入口 `Lobby.transferHost`、`Lobby.promoteHostSeat`、`public/js/screens/room.js`。
+
+## D021
+
+**生效：业务 JSON 保持原样，连接协商位置数组 v1，启用标准 WebSocket 压缩，常规公共状态最高 5 Hz。**
+
+- 新页面在原 JSON hello 中声明 wire 能力；原 JSON welcome 确认后，该物理连接才使用数组。旧页面继续收到 JSON；重连重新协商并重发完整快照。解码失败保留身份、重连并退回本页 JSON。
+- 消息 ID、位置、存在位图和枚举通过独立 WIRE_VERSION 维护；未知字段走扩展位，未知业务类型仍发原 JSON，已发布的布局不重排或复用。完整约定与可逆恢复工具见 [WIRE_PROTOCOL](../WIRE_PROTOCOL.md)。
+- 标准 permessage-deflate 使用独立连接字典；输入限制在解压后执行，保留身份、业务校验、限流与队列保护。普通公共变化合并为 200 ms，去重和关键强制同步保留，玩法和模拟步长不变。
+- 原因：抓包证实公共状态大、相邻视图大量重复。位置数组消除字段名开销；跨消息压缩利用重复；降低常规发送上限减少额外快照。保留全量快照便于旧客户端、重连和异常恢复，当前不增加业务增量依赖。
+- 边界：先在 `perf/compact-wire-bandwidth` 验证，后通过独立非快进提交合并回核心 `feat/IncreasePlayerCapacity`，保留测试分支，见 [DEV-20261010-10](records/2026-10-10-10-merge-compact-wire.md)；本机测试不等同线上真人压测。可用 SP_COMPACT_WIRE / SP_WS_DEFLATE 独立回退；实现依据 [DEV-20261010-09](records/2026-10-10-09-compact-wire-bandwidth.md)。
+
+## D022
+
+**生效：公开代码 / 游戏数据按文件内容 SHA-256 寻址，完整依赖图统一固定版本，HTTP 优先 Brotli。**
+
+- 首页扩充原生 import map，同时覆盖入口、样式、预加载、经典脚本和直接数据请求；源码相对导入不改写，虚拟 data.js 与 simdata.js 的模块身份保持唯一。只更新一个文件不使其他文件缓存失效。
+- 受验证 rv 地址为一年 immutable；HTML 保持 no-cache 并用生成正文的 ETag。任意旧 v 查询不再把代码/数据标为不可变；素材/字体旧 v 策略保留。旧页面仍能使用无版本地址验证资源。
+- 版本目录每个进程一个快照，更新源码或数据后重启；新内容不能装入旧地址。私有 Node 模拟加载器、SW / 导入 Worker、素材 Cache Storage 和 API 边界保留。
+- Brotli quality 5 / gzip level 6，独立表示 ETag、HEAD / Range / 304，异步压缩并发 2；验证和压缩缓存有字节上限。运行时版本目录与 Brotli 均有独立启动回退开关。
+- 原因：抓包出现重复的页面代码、模拟数据及素材目录高峰；降低正文大小并复用原生缓存，避免仅缓存入口而依赖混版。暂不新增可能拖慢模块启动的全局 HTTP 字节限速。
+- 依据：[HTTP_CACHE](../HTTP_CACHE.md)、[DEV-20261010-09](records/2026-10-10-09-compact-wire-bandwidth.md)；Edge 完整加载、449 资源缓存复用及 20 席位短流程已验证，线上冷启动与低带宽仍待部署测量。

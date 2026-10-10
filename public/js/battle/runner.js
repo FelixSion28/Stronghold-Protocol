@@ -75,6 +75,7 @@ import { unitStatsEntry, fxForm, RESULT_LIMITS } from '../../../shared/protocol.
 import { MAX_SEATS } from '../../../shared/constants.js';
 import { spectateEffects } from './observe.js';
 import { recordError, setBattleSource } from '../diag.js';
+import { runtimeURL, runtimeCacheMode } from '../runtime.js';
 
 const TICK = 1 / 30;
 /** Fast-forward budget per frame (ticks) when far behind. */
@@ -147,11 +148,12 @@ function deepFreeze(root) {
  */
 export async function loadBrowserSim({ base = '/sim/', dataBase = '/data/', fetchFn = (...a) => globalThis.fetch(...a) } = {}) {
   const [spec, simdata, support] = await Promise.all([
-    import(`${base}spec.js`), import(`${base}simdata.js`), import(`${base}content/support/index.js`),
+    import(runtimeURL(`${base}spec.js`)), import(runtimeURL(`${base}simdata.js`)), import(runtimeURL(`${base}content/support/index.js`)),
   ]);
   const fetchOnce = async (n) => {
     try {
-      const res = await fetchFn(`${dataBase}${n}.json`, { cache: 'no-cache' });
+      const url = runtimeURL(`${dataBase}${n}.json`);
+      const res = await fetchFn(url, { cache: runtimeCacheMode(url) });
       return res && res.ok ? await res.json() : null;
     } catch { return null; }
   };

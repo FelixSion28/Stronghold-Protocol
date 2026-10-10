@@ -162,7 +162,7 @@ describe('static http server', () => {
   });
 
   test('javascript: correct MIME, gzip when accepted, identity otherwise', async () => {
-    const gz = await httpReq(srv.port, '/js/app.js', { headers: { 'accept-encoding': 'gzip, deflate, br' } });
+    const gz = await httpReq(srv.port, '/js/app.js', { headers: { 'accept-encoding': 'gzip, deflate' } });
     assert.equal(gz.status, 200);
     assert.equal(gz.headers['content-type'], 'text/javascript; charset=utf-8');
     assert.equal(gz.headers['content-encoding'], 'gzip');
@@ -236,7 +236,7 @@ describe('static http server', () => {
     const assetRoot = await httpReq(srv.port, '/assets');
     assert.equal(assetRoot.status, 301, 'directory redirect, not cached content');
     const versioned = await httpReq(srv.port, '/js/app.js?v=123');
-    assert.match(versioned.headers['cache-control'], /immutable/);
+    assert.equal(versioned.headers['cache-control'], 'no-cache', 'an arbitrary query is not a verified runtime content version');
     const html = await httpReq(srv.port, '/index.html?v=1');
     assert.equal(html.headers['cache-control'], 'no-cache');
   });

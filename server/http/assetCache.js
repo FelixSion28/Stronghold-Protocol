@@ -3,11 +3,10 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { gzipSync } from 'node:zlib';
 import { createAssetCacheCatalog, checkedAssetPath } from '../assetCacheCatalog.js';
 import { clientAddress } from '../net.js';
 import { parseTrustProxy } from './config.js';
-import { acceptsGzip, MIME } from './files.js';
+import { GzipCache, serveBuffer, MIME } from './files.js';
 import { sendJson } from './common.js';
 import { CacheDownloadLimiter } from './cacheLimiter.js';
 
@@ -50,6 +49,7 @@ async function verifyAsset(handle, entry, canceled) {
 
 export function createAssetCacheHandler({ publicDir, dataDir, log, limits, trustProxy, buildCatalog = createAssetCacheCatalog }) {
   const limiter = new CacheDownloadLimiter(limits);
+  const compressionCache = new GzipCache();
   const proxy = trustProxy ?? parseTrustProxy(process.env.TRUST_PROXY);
   let pending = null;
   // One immutable catalog per server lifetime, shared by status, index and every filling request.
@@ -61,7 +61,7 @@ export function createAssetCacheHandler({ publicDir, dataDir, log, limits, trust
       // `version` is the reusable file-content version; the HTTP validator must also change
       // when completeness, warnings or application metadata changes without changing bytes.
       const entityTag = createHash('sha256').update(json).digest('hex');
-      return { catalog, byUrl, json, gzip: gzipSync(json), etag: `"asset-cache-${entityTag}"` };
+      return { catalog, byUrl, json, tag: `asset-cache-${entityTag}` };
     }).catch((error) => { pending = null; throw error; });
     return pending;
   }
@@ -83,16 +83,8 @@ export function createAssetCacheHandler({ publicDir, dataDir, log, limits, trust
         missingFiles: missing.length, policy: limiter.policy() }); return;
     }
     if (rawPath === `${ASSET_CACHE_PREFIX}catalog`) {
-      const useGzip = acceptsGzip(req.headers['accept-encoding']);
-      const body = useGzip ? state.gzip : state.json;
-      const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache',
-        ETag: state.etag, Vary: 'Accept-Encoding' };
-      if (typeof req.headers['if-none-match'] === 'string' && req.headers['if-none-match'].split(',').some((tag) => tag.trim().replace(/^W\//, '') === state.etag)) {
-        res.writeHead(304, headers); res.end(); return;
-      }
-      if (useGzip) headers['Content-Encoding'] = 'gzip';
-      headers['Content-Length'] = body.length;
-      res.writeHead(200, headers); res.end(req.method === 'HEAD' ? undefined : body); return;
+      await serveBuffer(req, res, state.json, { type: 'application/json; charset=utf-8', tag: state.tag, cache: compressionCache, minBytes: 0 });
+      return;
     }
     const params = new URLSearchParams(query);
     const url = params.get('url');

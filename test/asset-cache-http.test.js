@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, brotliDecompressSync } from 'node:zlib';
 import { performance } from 'node:perf_hooks';
 import { EventEmitter } from 'node:events';
 import { createAssetCacheHandler } from '../server/http/assetCache.js';
@@ -90,6 +90,20 @@ test('catalog HTTP validators change for completeness metadata even when asset c
       assert.equal(JSON.parse(after.body).version, catalog.version);
       assert.equal(JSON.parse(after.body).complete, false);
     } finally { replacement.close(); }
+  });
+});
+
+test('pre-cache catalog negotiates Brotli and keeps representation validators separate', async () => {
+  await fixture(async ({ server, catalog }) => {
+    const br = await request(server, '/api/asset-cache/catalog', { headers: { 'Accept-Encoding': 'gzip, br' } });
+    const gzip = await request(server, '/api/asset-cache/catalog', { headers: { 'Accept-Encoding': 'br;q=0,gzip' } });
+    assert.equal(br.headers['content-encoding'], 'br'); assert.equal(gzip.headers['content-encoding'], 'gzip');
+    assert.deepEqual(JSON.parse(brotliDecompressSync(br.body)), catalog);
+    assert.notEqual(br.headers.etag, gzip.headers.etag);
+    const head = await request(server, '/api/asset-cache/catalog', { method: 'HEAD', headers: { 'Accept-Encoding': 'br' } });
+    assert.equal(head.body.length, 0); assert.equal(head.headers['content-length'], br.headers['content-length']);
+    assert.equal((await request(server, '/api/asset-cache/catalog', { headers: { 'Accept-Encoding': 'br', 'If-None-Match': br.headers.etag } })).status, 304);
+    assert.equal((await request(server, '/api/asset-cache/catalog', { headers: { 'Accept-Encoding': 'gzip', 'If-None-Match': br.headers.etag } })).status, 200);
   });
 });
 

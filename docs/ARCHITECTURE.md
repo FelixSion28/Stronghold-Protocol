@@ -46,7 +46,7 @@ effects), [DATA.md](DATA.md) (generated data), [ASSETS.md](ASSETS.md) (art and a
 ## 2. The WebSocket protocol
 
 `shared/protocol.js` is normative: `C2S` holds one validator per client message and `S2C` lists the server messages.
-Every frame is JSON text, `{ t, rid?, …fields }`.
+Business objects remain `{ t, rid?, …fields }`. At the WebSocket boundary, each connection negotiates the reversible position-array protocol independently, retaining original JSON for older peers; standard permessage-deflate compresses either format. Ordinary public updates coalesce at 200 ms (5 Hz); explicit forced syncs remain immediate. The normative layout, enums and restoration CLI are in [WIRE_PROTOCOL.md](WIRE_PROTOCOL.md).
 
 | direction | messages | handled in |
 |---|---|---|
@@ -81,7 +81,7 @@ so old imports keep working: `public/js/ui/gameLogic.js` (`public/js/ui/gameLogi
 |---|---|
 | `server/index.js` | the process entry (`npm start`); `startServer()` wires `server/http/` |
 | `server/announcements.js`, `server/announcementNotices.js` | this fork's private Markdown announcement store, read-only HTTP content/images and explicit urgent-notification monitor; `tools/announcements.mjs` is the owner CLI |
-| `server/http/` | `config.js` (environment), `websocket.js` (sessions, `/ws`), `static.js` (the mounts), `media.js`, `files.js` (MIME, gzip, ETag, ranges), `buildTag.js`, `routes.js` (`/healthz`), `common.js`, `boot.js` (a pending update package first, banner, shutdown) |
+| `server/http/` | `config.js` (environment), `websocket.js` (sessions, `/ws`), `static.js` (mounts), `runtimeCache.js` (content-versioned module/data graph), `media.js`, `files.js` (MIME, Brotli/gzip, ETag, ranges), `buildTag.js`, `routes.js` (`/healthz`), `common.js`, `boot.js` (a pending update package first, banner, shutdown); see [HTTP_CACHE.md](HTTP_CACHE.md) |
 | `server/net.js` | sessions and reconnect tokens, rate limits, message validation |
 | `server/lobby.js` | rooms, seats, AI seats, spectators; starts a `Match` |
 | `server/lobbyDiscovery.js`, `shared/lobbyDiscovery.js` | lobby subscriptions, changed-only paged room summaries, atomic fastest matching; shared page size and update interval |

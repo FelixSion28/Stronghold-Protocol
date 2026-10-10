@@ -33,7 +33,7 @@ after(async () => {
 });
 
 async function player(name) {
-  const c = await TestClient.connect(`ws://127.0.0.1:${srv.port}/ws`);
+  const c = await TestClient.connect(`ws://127.0.0.1:${srv.port}/ws`, { wire: name === 'Alpha' });
   clients.push(c);
   const w = await c.hello(name);
   c.id = w.playerId;
@@ -202,10 +202,10 @@ test('real-time co-op over websockets with the real simulation: 2 humans + 2 AI 
     assert.equal(s.cards, 1, `${c.id} picked one 机变 card`);
     const pubs = c.log.filter((x) => x.t === 'm.public');
     const phases = new Set(pubs.map((x) => x.phase));
-    // (sub-100 ms presentation phases at this timer scale may fall between two throttled m.public frames)
+    // (sub-200 ms presentation phases at this timer scale may fall between two throttled m.public frames)
     for (const ph of ['INFO_CHECK', 'BAND_DRAFT', 'SP_DRAFT', 'PREP', 'COMBAT']) assert.ok(phases.has(ph), `${c.id} saw ${ph}`);
-    // m.public: throttled to ≤ 10/s (a 100 ms gap, small timer jitter tolerated)
-    for (let i = 1; i < pubs.length; i++) assert.ok(pubs[i].serverNow - pubs[i - 1].serverNow >= 95, `m.public ${pubs[i].serverNow - pubs[i - 1].serverNow} ms apart`);
+    // Initial/recovery/result/setup-vote forced views are immediate; normal updates have a 200 ms minimum gap.
+    for (let i = 1; i < pubs.length; i++) assert.ok(pubs[i].serverNow - pubs[i - 1].serverNow >= 195, `m.public ${pubs[i].serverNow - pubs[i - 1].serverNow} ms apart`);
     const priv = latest(c, 'm.private');
     assert.equal(priv.hand.length, 10);
     assert.equal(priv.temp.length, 5);
