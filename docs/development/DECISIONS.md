@@ -216,3 +216,13 @@
 - 局内自动移交只变更房主身份，不改本局座位和固定卡池组；结束回到等候房后归 P1。移除 AI 的新客户端请求携带 playerId 防止陈旧座位操作，旧无身份请求继续兼容。
 - 原因：用户希望房主始终是等待室首位，同时必须保留开战后的固定组。界面排序而不换实际座位的方案未采用。
 - 依据：[本次房间管理记录](records/2026-10-10-07-room-management.md)；入口 `Lobby.transferHost`、`Lobby.promoteHostSeat`、`public/js/screens/room.js`。
+
+## D021
+
+**生效：业务 JSON 保持原样，连接协商位置数组 v1，启用标准 WebSocket 压缩，常规公共状态最高 5 Hz。**
+
+- 新页面在原 JSON hello 中声明 wire 能力；原 JSON welcome 确认后，该物理连接才使用数组。旧页面继续收到 JSON；重连重新协商并重发完整快照。解码失败保留身份、重连并退回本页 JSON。
+- 消息 ID、位置、存在位图和枚举通过独立 WIRE_VERSION 维护；未知字段走扩展位，未知业务类型仍发原 JSON，已发布的布局不重排或复用。完整约定与可逆恢复工具见 [WIRE_PROTOCOL](../WIRE_PROTOCOL.md)。
+- 标准 permessage-deflate 使用独立连接字典；输入限制在解压后执行，保留身份、业务校验、限流与队列保护。普通公共变化合并为 200 ms，去重和关键强制同步保留，玩法和模拟步长不变。
+- 原因：抓包证实公共状态大、相邻视图大量重复。位置数组消除字段名开销；跨消息压缩利用重复；降低常规发送上限减少额外快照。保留全量快照便于旧客户端、重连和异常恢复，当前不增加业务增量依赖。
+- 边界：本地测试分支 `perf/compact-wire-bandwidth`；本机测试不等同线上真人压测。可用 SP_COMPACT_WIRE / SP_WS_DEFLATE 独立回退；依据 [DEV-20261010-09](records/2026-10-10-09-compact-wire-bandwidth.md)。

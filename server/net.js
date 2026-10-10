@@ -4,7 +4,7 @@
 //   * Session objects (playerId, secret reconnect token, name, bound socket, connection state) and the
 //     SessionRegistry that resolves reconnect tokens and expires sessions after the reconnect window (10 min; the
 //     lobby may extend it per session via `session.resumeWindowMs` — a solo run: 24 h, see server/lobby.js).
-//   * Per-connection pipeline: token-bucket rate limit (40 msg/s) → JSON decode → schema validation
+//   * Per-connection pipeline: token-bucket rate limit (40 msg/s) → JSON/negotiated wire decode → schema validation
 //     (shared/protocol.js) → `hello`/`ping` handling → dispatch to the lobby handler → `ok`/`error`
 //     reply echoing the request id (`rid`). Intents whose answer is a large state resend (`g.watch` →
 //     m.field) also draw from a second, much smaller bucket (2/s, burst 6), so one socket cannot turn
@@ -41,9 +41,11 @@ import { randomBytes } from 'node:crypto';
 import { isIP } from 'node:net';
 import { C2S, validateC2S } from '../shared/protocol.js';
 import { ERR, ERR_TEXT, NAME_MAX_LEN, PROTOCOL_VERSION } from '../shared/constants.js';
+import { WIRE_VERSION, encodeWire, decodeWire } from '../shared/wireCodec.js';
 
 /** Tunables (all overridable through the Network / SessionRegistry constructors). */
 export const NET_DEFAULTS = Object.freeze({
+  compactWire: process.env.SP_COMPACT_WIRE !== '0',
   ratePerSec: 40,               // token bucket refill rate
   rateBurst: 40,                // token bucket capacity
   abuseDropsPerSec: 400,        // rate-limited messages within one second before the socket is closed (1008)
@@ -267,6 +269,33 @@ export function encode(msg) {
 }
 
 const onSendDone = (err) => { void err; }; // errors surface through the socket's 'error'/'close' events
+// A transport capability belongs to the physical socket, never the room/session that survives reconnects.
+const wireVersions = new WeakMap();
+
+export const wireVersionOf = (ws) => ws ? wireVersions.get(ws) || 0 : 0;
+const setWireVersion = (ws, version) => wireVersions.set(ws, version);
+
+/** Encode JSON once per broadcast; compact JSON is generated lazily once, shared with every v1 recipient. */
+export function prepareMessage(msg) {
+  const json = encode(msg);
+  let compact;
+  return {
+    json,
+    get compact() {
+      if (compact === undefined) {
+        try { compact = JSON.stringify(encodeWire(JSON.parse(json), 's2c')); }
+        catch { compact = json; } // Preserve the existing readable protocol if a future shape is not representable.
+      }
+      return compact;
+    },
+  };
+}
+
+/** A prepared broadcast is immutable JSON text; compression contexts remain per socket in ws. */
+export function sendPrepared(ws, frame, opts) {
+  if (!frame || frame.json == null) return false;
+  return queueRaw(ws, wireVersionOf(ws) === WIRE_VERSION ? frame.compact : frame.json, opts);
+}
 
 /**
  * Send an already-encoded frame. Skips when the socket is not OPEN, when `droppable` and the socket is
@@ -277,6 +306,14 @@ const onSendDone = (err) => { void err; }; // errors surface through the socket'
  * @returns {boolean} true when the frame was queued
  */
 export function sendRaw(ws, data, { droppable = false } = {}) {
+  // Stored end-of-match frames and lobby summaries use legacy JSON; replay through the same negotiated boundary.
+  if (wireVersionOf(ws) === WIRE_VERSION && typeof data === 'string') {
+    try { data = JSON.stringify(encodeWire(JSON.parse(data), 's2c')); } catch { /* legacy fallback */ }
+  }
+  return queueRaw(ws, data, { droppable });
+}
+
+function queueRaw(ws, data, { droppable = false } = {}) {
   if (!ws || ws.readyState !== WS_OPEN || typeof data !== 'string') return false;
   try {
     const queued = ws.bufferedAmount;
@@ -299,9 +336,7 @@ export const isDroppable = (msg) => !!msg && msg.t === 'b.snap';
  * @returns {boolean}
  */
 export function send(ws, msg) {
-  const data = encode(msg);
-  if (data == null) return false;
-  return sendRaw(ws, data, { droppable: isDroppable(msg) });
+  return sendPrepared(ws, prepareMessage(msg), { droppable: isDroppable(msg) });
 }
 
 /**
@@ -588,13 +623,19 @@ export class Network {
         conn.close(CLOSE.POLICY, 'rate limit');
         return;
       }
-      this.reply(conn, errorMsg(ERR.RATE, peekRid(data, isBinary)));
+      this.reply(conn, errorMsg(ERR.RATE, peekRid(data, isBinary, wireVersionOf(conn.ws))));
       return;
     }
 
     if (isBinary) { this.reply(conn, errorMsg(ERR.BAD_MSG, undefined, 'binary frame')); return; }
     let msg;
-    try { msg = JSON.parse(data.toString('utf8')); } catch { this.reply(conn, errorMsg(ERR.BAD_MSG, undefined, 'invalid json')); return; }
+    try {
+      msg = JSON.parse(data.toString('utf8'));
+      if (Array.isArray(msg)) {
+        if (wireVersionOf(conn.ws) !== WIRE_VERSION) throw new Error('wire not negotiated');
+        msg = decodeWire(msg, 'c2s');
+      }
+    } catch { this.reply(conn, errorMsg(ERR.BAD_MSG, undefined, 'invalid json or compact wire')); return; }
     const rid = msg && typeof msg === 'object' ? msg.rid : undefined;
     // Own-property check first: validateC2S alone would accept inherited keys like "constructor".
     if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.t !== 'string' || !Object.hasOwn(C2S, msg.t)) {
@@ -678,8 +719,12 @@ export class Network {
     let extra = null;
     try { extra = this.handler.welcomeInfo?.() ?? null; } catch (e) { this.log.error('[net] welcomeInfo crashed', e); }
     const welcome = { ...(extra && typeof extra === 'object' ? extra : null), t: 'welcome', playerId: session.playerId, token: session.token, name: session.name, serverNow: now, version: PROTOCOL_VERSION, resumed };
+    const wire = this.opts.compactWire && msg.wire === WIRE_VERSION ? WIRE_VERSION : 0;
+    if (wire) welcome.wire = wire;
     if (validRid(rid)) welcome.rid = rid;
-    this.reply(conn, welcome);
+    // Repeated hello may renegotiate too. The acknowledgement is always readable JSON and precedes all pushes.
+    setWireVersion(conn.ws, wire);
+    queueRaw(conn.ws, encode(welcome));
     try {
       this.handler.onHello?.(session, { resumed, repeat });
     } catch (e) {
@@ -766,10 +811,11 @@ export class Network {
 }
 
 /** Best-effort rid extraction for rate-limited frames (so the client's pending request resolves). */
-function peekRid(data, isBinary) {
+function peekRid(data, isBinary, wire = 0) {
   if (isBinary || !data || data.length > PEEK_RID_MAX_BYTES) return undefined;
   try {
-    const m = JSON.parse(data.toString('utf8'));
+    const raw = JSON.parse(data.toString('utf8'));
+    const m = Array.isArray(raw) && wire === WIRE_VERSION ? decodeWire(raw, 'c2s') : raw;
     return m && typeof m === 'object' ? m.rid : undefined;
   } catch {
     return undefined;

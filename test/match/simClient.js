@@ -16,6 +16,7 @@
 import assert from 'node:assert/strict';
 import { createBattleFromSpec, compactResult, battleProgress, attachLpMeter } from '../../server/sim/spec.js';
 import { validateC2S } from '../../shared/protocol.js';
+import { decodeWire } from '../../shared/wireCodec.js';
 import { MAX_SEATS } from '../../shared/constants.js';
 import { TICK } from '../../server/sim/constants.js';
 
@@ -214,7 +215,7 @@ export function attachWsSimClient(tc, opts = {}) {
   tc.ws.on('message', (data, isBinary) => {
     if (isBinary) return;
     let msg;
-    try { msg = JSON.parse(String(data)); } catch { return; }
+    try { msg = decodeWire(JSON.parse(String(data)), 's2c'); } catch { return; }
     try { sc.onMessage(msg); } catch (e) { sc.error = e; }
   });
   return sc;

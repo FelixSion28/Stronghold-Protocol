@@ -31,6 +31,7 @@
 
 import { PROTOCOL_VERSION, ERR_TEXT } from '../../shared/constants.js';
 import { validateC2S } from '../../shared/protocol.js';
+import { WIRE_VERSION, encodeWire, decodeWire } from '../../shared/wireCodec.js';
 import { N_ } from '../../shared/i18n.js';
 
 export const REQUEST_TIMEOUT_MS = 8000;
@@ -140,6 +141,8 @@ export class Net {
     this.helloName = null;     // name we sent in the hello that got the last welcome
     this.serverName = null;    // name as normalised by the server
     this.playerId = null;
+    this.wireVersion = 0;
+    this._wireDisabled = false; // Decoding failure downgrades this page to JSON on its next full resync.
     this.attempt = 0;          // consecutive failed connection attempts
     this.retryAt = 0;          // epoch ms of the next reconnect attempt (0 = none)
     this.ping = null;          // last RTT in ms
@@ -347,6 +350,7 @@ export class Net {
       ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
     }
     this.ws = null;
+    this.wireVersion = 0;
     this._unansweredSince = null;
     this._clearTimer('_pingTimer', 'clearInterval');
     this._clearTimer('_helloTimer', 'clearTimeout');
@@ -367,6 +371,7 @@ export class Net {
     if (!this.name) return;
     const rid = this._nextRid();
     const msg = { t: 'hello', rid, name: this.name, version: PROTOCOL_VERSION };
+    if (!this._wireDisabled) msg.wire = WIRE_VERSION;
     let token = null;
     try { token = this.getToken(); } catch { token = null; }
     if (typeof token === 'string' && token.length > 0 && token.length <= 64) {
@@ -400,6 +405,7 @@ export class Net {
     this.helloName = this._helloSentName;
     this.serverName = typeof msg.name === 'string' && msg.name ? msg.name : this._helloSentName;
     this.playerId = msg.playerId ?? null;
+    this.wireVersion = !this._wireDisabled && msg.wire === WIRE_VERSION ? WIRE_VERSION : 0;
     this.attempt = 0;
     this.lastError = null;
     if (Number.isFinite(msg.serverNow)) this._addClockSample(msg.serverNow + (this.ping ?? 0) / 2 - this.now(), Infinity);
@@ -486,7 +492,8 @@ export class Net {
     const ws = this.ws;
     if (!ws || ws.readyState !== WS_OPEN) return false;
     try {
-      ws.send(JSON.stringify(obj));
+      const compact = this.wireVersion === WIRE_VERSION && obj.t !== 'hello';
+      ws.send(JSON.stringify(compact ? encodeWire(obj, 'c2s') : obj));
       return true;
     } catch (err) {
       console.warn('[net] send failed', err);
@@ -536,6 +543,17 @@ export class Net {
     } catch {
       console.warn('[net] dropped non-JSON frame');
       return;
+    }
+    if (Array.isArray(msg)) {
+      try {
+        if (this.wireVersion !== WIRE_VERSION) throw new Error('wire not negotiated');
+        msg = decodeWire(msg, 's2c');
+      } catch (error) {
+        console.warn('[net] compact decode failed; reconnecting with JSON', error.message);
+        this._wireDisabled = true;
+        this.reconnectNow();
+        return;
+      }
     }
     if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.t !== 'string') return;
     const { t } = msg;

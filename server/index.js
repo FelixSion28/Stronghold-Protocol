@@ -52,7 +52,7 @@ export {
  *   serverSettingsDir?: string,
  *   MatchClass?: Function, seedFn?: () => number,
  *   lobbyGraceMs?: number, reconnectWindowMs?: number, heartbeatMs?: number, helloTimeoutMs?: number,
- *   ratePerSec?: number, rateBurst?: number, maxConnections?: number, maxRooms?: number,
+ *   ratePerSec?: number, rateBurst?: number, maxConnections?: number, maxRooms?: number, compactWire?: boolean,
  *   maxConnectionsPerAddr?: number, maxRoomsPerAddr?: number, maxMatchesPerAddr?: number, resyncMinGapMs?: number,
  *   heavyPerSec?: number, heavyBurst?: number, trustProxy?: 'auto' | boolean, soloReconnectWindowMs?: number,
  *   assetCacheLimits?: { totalBps?: number, clientBps?: number, maxDownloads?: number, maxDownloadsPerClient?: number },

@@ -383,7 +383,8 @@ const target = (v) => {
 export const C2S = {
   // session & lobby
   hello: { name: (v) => isStr(v, NAME_MAX_LEN) && v.trim().length > 0, token: (v) => v == null || isStr(v, 64), version: (v) => v == null || isInt(v, 0, 1e6),
-    noReplace: isBool, claimAt: (v) => isNum(v, 0, Number.MAX_SAFE_INTEGER), $optional: ['token', 'version', 'noReplace', 'claimAt'] },
+    noReplace: isBool, claimAt: (v) => isNum(v, 0, Number.MAX_SAFE_INTEGER), wire: (v) => isInt(v, 0, 1e6),
+    $optional: ['token', 'version', 'noReplace', 'claimAt', 'wire'] },
   ping: { c: (v) => typeof v === 'number' && Number.isFinite(v) },
   // Lightweight directory subscription; only the opened list carries one bounded page of room summaries.
   'lobby.watch': { on: isBool, list: isBool, page: (v) => isInt(v, 0, 1e6), $optional: ['list', 'page'] },
