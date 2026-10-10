@@ -5,6 +5,7 @@ import { TestClient } from './helpers/wsClient.js';
 import { validateC2S } from '../shared/protocol.js';
 import { PHASE } from '../shared/constants.js';
 import { DATA, makeMatch } from './match/harness.js';
+import { BAND_TURN_SECONDS } from '../server/match/Match.js';
 import { phaseTotalSeconds, countdownState } from '../public/js/ui/gameLogic.js';
 
 test('room.create accepts optional 1–5 duration multipliers, including fractions, and rejects invalid values', () => {
@@ -68,8 +69,8 @@ test('fractional timers extend the actual deadlines and gauges without extending
     assert.equal(m.phase, PHASE.INFO_CHECK, 'the original deadline does not end the phase');
     h.sched.advance(37_500);
     assert.equal(m.phase, PHASE.BAND_DRAFT);
-    assert.equal(total(), 75, 'turnSeconds is already scaled by the server');
-    assert.equal(m.deadline - h.sched.now(), 74_999);
+    assert.equal(total(), BAND_TURN_SECONDS * 2.5, 'turnSeconds is already scaled by the server');
+    assert.equal(m.deadline - h.sched.now(), BAND_TURN_SECONDS * 2500 - 1);
     h.toPrep();
     const prep = DATA.config.modes[m.modeId].rounds['1'].prepTime * 2.5;
     assert.equal(total(), prep);
@@ -77,7 +78,7 @@ test('fractional timers extend the actual deadlines and gauges without extending
     assert.equal(countdownState(m.deadline, h.sched.now() + prep * 500, total()).bars, 3);
     assert.equal(phaseTotalSeconds({ phase: PHASE.SP_DRAFT, timerScale: 2.5 }, DATA.config), 75);
     assert.equal(phaseTotalSeconds({ phase: PHASE.BATTLE_CHECK, timerScale: 2.5 }, DATA.config), 7.5);
-    assert.equal(phaseTotalSeconds({ phase: PHASE.BAND_DRAFT, timerScale: 2.5 }, DATA.config), 75);
+    assert.equal(phaseTotalSeconds({ phase: PHASE.BAND_DRAFT, timerScale: 2.5 }, DATA.config), BAND_TURN_SECONDS * 2.5);
     m.startCombat();
     const combat = DATA.config.modes[m.modeId].rounds['1'].combatTimeLimit;
     assert.equal(total(), combat);

@@ -214,9 +214,14 @@ export function phaseTotalSeconds(pub, config, myId = null) {
   switch (pub.phase) {
     case PHASE.INFO_CHECK: return timed(num(timers.infoCheck) ?? 25);
     // one countdown: the current turn's (m.public.draft.turnSeconds = Match.BAND_TURN_SECONDS; user playtest #4 item 4)
-    case PHASE.BAND_DRAFT: return num(pub.draft?.turnSeconds) ?? timed(num(timers.bandTurn) ?? 30);
+    case PHASE.BAND_DRAFT: {
+      const group = pub.draft?.groups?.find((g) => g.playerIds?.includes(myId));
+      return num(group?.turnSeconds) ?? num(pub.draft?.turnSeconds) ?? timed(50);
+    }
     case PHASE.BATTLE_CHECK: return timed(num(timers.battleCheck) ?? 3);
     case PHASE.SP_DRAFT: {
+      const group = pub.sp?.groups?.find((g) => g.playerIds?.includes(myId));
+      if (num(group?.turnSeconds) != null) return num(group.turnSeconds);
       const sp = normalizeSp(pub.sp, pub.players);
       const first = !sp || sp.pickedCount === 0;
       return timed(first ? (num(timers.spFirst) ?? 30) : (num(timers.spTurn) ?? 16));
