@@ -230,20 +230,30 @@ describe('0.2.3 follow-up client features', { skip: !ENABLED }, () => {
         }, lang);
         const toolbar = await page.$eval('.lobby-screen .topbar', (e) => {
           const heading = e.querySelector('.topbar__center').getBoundingClientRect();
-          const controls = [...e.querySelectorAll('button')].map((button) => {
-            const r = button.getBoundingClientRect();
-            return { text: button.textContent.trim(), height: r.height, left: r.left, right: r.right, top: r.top, bottom: r.bottom,
-              hit: button.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)) };
+          const rowCenters = [...e.querySelector('.topbar__right').children].filter((x) => x.matches('button,.me-chip')).map((x) => {
+            const r = x.getBoundingClientRect(); return r.top + r.height / 2;
           });
-          return { coarse: document.documentElement.classList.contains('sp-coarse'), headingBottom: heading.bottom, controls };
+          return { coarse: document.documentElement.classList.contains('sp-coarse'), headingCenter: heading.left + heading.width / 2,
+            headingBottom: heading.bottom, rowCenters };
         });
         assert.equal(toolbar.coarse, true, 'phone fixture has real touch hit areas');
-        for (const control of toolbar.controls) {
+        assert.ok(Math.abs(toolbar.headingCenter - 422) < 1, `${lang}: heading stays centered`);
+        assert.ok(Math.max(...toolbar.rowCenters) - Math.min(...toolbar.rowCenters) < 2, `${lang}: tools and player card share one row`);
+        // Narrow screens retain one tool row: scroll each control into view before checking access.
+        for (const button of await page.$$('.lobby-screen .topbar button')) {
+          await button.evaluate((e) => e.scrollIntoView({ block: 'nearest', inline: 'center' }));
+          const control = await button.evaluate((e) => {
+            const r = e.getBoundingClientRect();
+            return { text: e.textContent.trim(), height: r.height, width: r.width, left: r.left, right: r.right, top: r.top, bottom: r.bottom,
+              hit: e.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)) };
+          });
           assert.ok(control.height >= 44, `${lang}: ${control.text} contains its 44px touch target`);
+          assert.ok(control.width >= 44, `${lang}: ${control.text} contains its 44px touch width`);
           assert.ok(control.top >= toolbar.headingBottom && control.left >= 0 && control.right <= 844 && control.bottom <= 390,
             `${lang}: ${control.text} fits below the heading and inside the phone`);
           assert.equal(control.hit, true, `${lang}: ${control.text} center hits its own control`);
         }
+        await page.$eval('[data-testid="settings-btn"]', (e) => e.scrollIntoView({ block: 'nearest', inline: 'center' }));
         await page.click('[data-testid="settings-btn"]');
         await page.waitForSelector('.modal .set-list');
         const overflow = await page.$eval('.modal__body', (e) => e.scrollWidth - e.clientWidth);

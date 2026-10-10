@@ -14,9 +14,18 @@
 }
 .lobby-left, .lobby-right { display: flex; flex-direction: column; min-width: 0; }
 
-/* Optional recovery and install entries share the right grid column without covering the title. */
-.lobby-screen .topbar { height: auto; min-height: 1.1rem; padding-block: .1rem; }
-.lobby-screen .topbar__right { flex-wrap: wrap; justify-content: flex-end; max-width: 100%; gap: .08rem .1rem; }
+/* Balanced tool columns keep the heading at the viewport center and the profile on one row. */
+.lobby-screen .topbar { height: auto; min-height: 1.1rem; padding-block: .1rem; gap: .16rem; }
+.lobby-screen .topbar__left { justify-self: stretch; overflow-x: auto; gap: .08rem; }
+.lobby-screen .topbar__left > * { flex: none; }
+.lobby-screen .topbar__center { min-width: 0; max-width: 4rem; }
+.lobby-screen .topbar__center > * { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lobby-screen .topbar__title { display: block; }
+.lobby-screen .topbar__right { flex-wrap: nowrap; justify-self: stretch; max-width: 100%; overflow-x: auto; gap: .08rem; }
+.lobby-screen .topbar__right > :first-child { margin-left: auto; }
+.lobby-screen .topbar__right > * { flex: none; }
+.lobby-screen .topbar > :is(.topbar__left, .topbar__right) > .btn { padding-inline: .1rem; }
+.lobby-screen .me-chip__name { max-width: 1.6rem; }
 
 /* ---- mode cards ------------------------------------------------------------------------------------ */
 .mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: .24rem; margin-bottom: .34rem; }
@@ -295,12 +304,13 @@
 .lobby-directory__pager { display: flex; align-items: center; gap: .1rem; color: var(--text-lo); font-size: calc(.14 * var(--t)); }
 @media (max-width: 900px) {
   /* Long translations keep the heading centered on its own row; tools use the remaining width. */
-  .lobby-screen .topbar { grid-template-columns: auto minmax(0, 1fr); gap: .16rem .24rem; }
+  .lobby-screen .topbar { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .16rem .24rem; }
+  .lobby-screen .topbar__center { justify-self: center; max-width: 100%; }
   .lobby-screen .topbar__center { grid-column: 1 / -1; grid-row: 1; }
   .lobby-screen .topbar__left { grid-column: 1; grid-row: 2; }
   .lobby-screen .topbar__right { grid-column: 2; grid-row: 2; }
-  /* A wrapped control must contain its 44px touch target instead of covering the next row. */
-  .sp-coarse .lobby-screen .topbar .btn { min-height: var(--tap-min); }
+  /* Scroll the tool row when necessary, retaining real 44px touch targets. */
+  .sp-coarse .lobby-screen .topbar .btn { min-width: var(--tap-min); min-height: var(--tap-min); }
   .lobby-online { min-width: 0; padding: 0 .06rem; }
   .lobby-directory__room { grid-template-columns: 1fr auto; }
   .lobby-directory__room-meta { grid-column: 1 / -1; }
@@ -308,7 +318,7 @@
 }
 @media (max-width: 560px) {
   .lobby-screen .topbar { grid-template-columns: minmax(0, 1fr); }
-  .lobby-screen .topbar__left { grid-column: 1; max-width: 100%; flex-wrap: wrap; }
+  .lobby-screen .topbar__left { grid-column: 1; max-width: 100%; }
   .lobby-screen .topbar__right { grid-column: 1; grid-row: 3; }
   .lobby-discovery__stats { gap: .05rem; }
   .lobby-discovery__actions { flex-wrap: wrap; }

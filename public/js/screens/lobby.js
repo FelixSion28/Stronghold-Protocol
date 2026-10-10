@@ -337,6 +337,8 @@ export function LobbyScreen() {
         <${PingPill} ms=${conn.ping} online=${online} />
         <${LobbyOnlinePill} count=${discoveryState.online} connected=${online} />
         <${AssetCacheButton} />
+        <${ResumeMatchButton} />
+        <${PwaInstallButton} class="lobby-pwa" />
       </div>
       <div class="topbar__center">
         <${MicroLabel} tone="mint">SIMULATION PROTOCOL SELECT<//>
@@ -345,8 +347,6 @@ export function LobbyScreen() {
       <div class="topbar__right">
         <${AnnouncementButton} variant="secondary" />
         <${Button} variant="secondary" size="sm" icon="chart" class="stats-entry" onClick=${openStats} title=${t('统计数据')} aria-label=${t('统计数据')}>${t('统计')}<//>
-        <${ResumeMatchButton} />
-        <${PwaInstallButton} class="lobby-pwa" />
         <${SettingsButton} class="lobby-settings" variant="secondary" label=${t('设置')} />
         <${GuideButton} class="lobby-guide" variant="secondary" label=${t('玩法说明')} />
         <${LoadoutButton} from="lobby" size="sm" class="lobby-loadout" label=${t('干员调配')} />
