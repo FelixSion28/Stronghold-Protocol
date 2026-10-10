@@ -1,3 +1,23 @@
+## 用法
+
+```bash
+# 发布；--pin 同时置顶。--id 设置公告编号，如果省略--id会自动生成编号
+# 下面命令请在项目根目录执行
+# 公告内容采用.md文件编写，并且--file后面的路径要指向你要发布的公告的文件的位置,比如下面./notice.md，“./”表示当前命令所在目录下
+
+node tools/announcements.mjs publish --id welcome --title "开服公告" --file ./notice.md
+--pin
+
+# 查看编号和发布时间
+node tools/announcements.mjs list
+
+# 更改置顶或取消置顶，pin后面是编号
+node tools/announcements.mjs pin welcome
+node tools/announcements.mjs unpin
+```
+
+# 下面都是AI写的，用法看上面我写的
+
 # 服务器公告
 
 公告不需要账号、数据库或网页管理后台。服主在运行游戏的服务器终端发布 UTF-8 Markdown 文件，游戏运行中读取更新，无需重启。
@@ -33,6 +53,9 @@ node tools/announcements.mjs list
 # 更改置顶或取消置顶
 node tools/announcements.mjs pin welcome
 node tools/announcements.mjs unpin
+
+# 此命令可以向正在局内的玩家发布紧急通知，紧急通知只能指定之前发过的公告，maintenance就是编号示例
+node tools/announcements.mjs notify maintenance
 ```
 
 每个编号只发布一次；修正公告时用新编号发布，保留历史并产生新的提醒版本。请使用工具发布，不手工修改已发布的正文或索引；完整性检查会拒绝未登记的修改。
