@@ -221,11 +221,29 @@ describe('0.2.3 follow-up client features', { skip: !ENABLED }, () => {
     const ctx = await browser.createBrowserContext();
     try {
       const page = await pageIn(ctx, true);
+      await page.setViewport({ width: 844, height: 390, hasTouch: true });
+      await page.waitForFunction(() => globalThis.__SP__?.store.get().connection.status === 'online' && document.querySelector('.lobby-screen'));
       for (const lang of ['zh-CN', 'en', 'ja', 'ko', 'zh-TW']) {
         await page.evaluate(async (lang) => {
           await (await import('/js/ui/lang.js')).switchLang(lang);
           (await import('/js/ui/settings.js')).updateSettings({ textSize: 'xl' });
         }, lang);
+        const toolbar = await page.$eval('.lobby-screen .topbar', (e) => {
+          const heading = e.querySelector('.topbar__center').getBoundingClientRect();
+          const controls = [...e.querySelectorAll('button')].map((button) => {
+            const r = button.getBoundingClientRect();
+            return { text: button.textContent.trim(), height: r.height, left: r.left, right: r.right, top: r.top, bottom: r.bottom,
+              hit: button.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)) };
+          });
+          return { coarse: document.documentElement.classList.contains('sp-coarse'), headingBottom: heading.bottom, controls };
+        });
+        assert.equal(toolbar.coarse, true, 'phone fixture has real touch hit areas');
+        for (const control of toolbar.controls) {
+          assert.ok(control.height >= 44, `${lang}: ${control.text} contains its 44px touch target`);
+          assert.ok(control.top >= toolbar.headingBottom && control.left >= 0 && control.right <= 844 && control.bottom <= 390,
+            `${lang}: ${control.text} fits below the heading and inside the phone`);
+          assert.equal(control.hit, true, `${lang}: ${control.text} center hits its own control`);
+        }
         await page.click('[data-testid="settings-btn"]');
         await page.waitForSelector('.modal .set-list');
         const overflow = await page.$eval('.modal__body', (e) => e.scrollWidth - e.clientWidth);

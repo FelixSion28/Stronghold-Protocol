@@ -294,12 +294,22 @@
 .lobby-directory__footer { display: flex; align-items: center; justify-content: space-between; gap: .12rem; width: 100%; }
 .lobby-directory__pager { display: flex; align-items: center; gap: .1rem; color: var(--text-lo); font-size: calc(.14 * var(--t)); }
 @media (max-width: 900px) {
+  /* Long translations keep the heading centered on its own row; tools use the remaining width. */
+  .lobby-screen .topbar { grid-template-columns: auto minmax(0, 1fr); gap: .16rem .24rem; }
+  .lobby-screen .topbar__center { grid-column: 1 / -1; grid-row: 1; }
+  .lobby-screen .topbar__left { grid-column: 1; grid-row: 2; }
+  .lobby-screen .topbar__right { grid-column: 2; grid-row: 2; }
+  /* A wrapped control must contain its 44px touch target instead of covering the next row. */
+  .sp-coarse .lobby-screen .topbar .btn { min-height: var(--tap-min); }
   .lobby-online { min-width: 0; padding: 0 .06rem; }
   .lobby-directory__room { grid-template-columns: 1fr auto; }
   .lobby-directory__room-meta { grid-column: 1 / -1; }
   .lobby-directory__join { grid-column: 2; grid-row: 1; }
 }
 @media (max-width: 560px) {
+  .lobby-screen .topbar { grid-template-columns: minmax(0, 1fr); }
+  .lobby-screen .topbar__left { grid-column: 1; max-width: 100%; flex-wrap: wrap; }
+  .lobby-screen .topbar__right { grid-column: 1; grid-row: 3; }
   .lobby-discovery__stats { gap: .05rem; }
   .lobby-discovery__actions { flex-wrap: wrap; }
   .lobby-discovery__preference { flex: 1 1 1.8rem; }
