@@ -72,11 +72,11 @@
 
 ```powershell
 node tools/wire.mjs schema
-Get-Content -Encoding utf8 original.jsonl | node tools/wire.mjs encode
-Get-Content -Encoding utf8 compact.jsonl | node tools/wire.mjs decode
+node tools/wire.mjs encode original.jsonl
+node tools/wire.mjs decode compact.jsonl
 ```
 
-工具按行处理 UTF-8 JSON，失败会报行号并返回非零状态。输入为解压后的 WebSocket 文本；不会读取房间、连接远程或上传内容。往返比较按 JSON 语义进行，对象键的显示顺序可能改变。
+工具直接读取 UTF-8 文件（兼容首行 BOM），也可省略文件名或用 `-` 读取标准输入。直接读文件避免旧 PowerShell 将管道文本重新编码成 ASCII/OEM；输出遵循 UTF-8，并等待标准输出背压，不在大文件转换时堆积全部输出。失败会报行号并返回非零状态。输入为解压后的 WebSocket 文本；不会读取房间、连接远程或上传内容。往返比较按 JSON 语义进行，对象键的显示顺序可能改变。
 
 ## 5. 协商与重连约定
 
@@ -97,3 +97,36 @@ hello 始终使用原 JSON，并声明 `wire: 1`；服务器先返回原 JSON we
 应急开关：启动服务器前设置 `SP_COMPACT_WIRE=0` 可关闭数组协商，设置 `SP_WS_DEFLATE=0` 可关闭 WebSocket 压缩。两者独立；关闭数组仍可压缩原 JSON。开关在进程启动时生效，修改后须重启，重启仍遵守内存房间无法热迁移的现有限制。HTTP 策略见 [HTTP_CACHE](HTTP_CACHE.md)，实际测量与限制见本任务记录。
 
 维护时至少运行 `node --test test/wire-codec.test.js` 和对应网络、房间、匹配与客户端测试。目录覆盖测试会发现新 C2S / S2C 类型漏登记；真实公共视图测试会发现新公共字段只落入扩展位。修改目录不能仅更新截图或说明而跳过往返、协商和重连测试。
+
+完整 v1 目录还用规范化 JSON 的 SHA-256 固定为 `ea41ddd24cfb8234de364c3890560797892705390ac4ac5cf0c5206b320f71de`。规范化只递归排序对象键，数组顺序保持原样；目录指纹测试防止字段、消息及枚举意外改号。另将 2840 组固定样例的编码字节指纹固定在测试中，防止只靠同版本往返测试漏掉算法对旧格式的不兼容修改。新增布局时归档并保留 v1 编解码和测试，再引入新版本；不能只修改指纹让检查通过。新增业务信息在新布局发布前可以继续通过原 JSON / 扩展位传输。
+
+## 7. 实际抓包复测与复现
+
+2026-10-10 用用户的 `game-local.pcap` 重放 82 条物理连接的全部 22,221 条服务器 JSON。主 20 真人房的 7,570 个公共状态副本，保留原消息次数，测得：
+
+| 方案 | WebSocket 字节，十进制 MB | 比旧原 JSON 少 |
+|---|---|---|
+| 原 JSON | 180.20 | 0% |
+| 位置数组，不压缩 | 85.34 | 52.64% |
+| 每条原 JSON 独立压缩 | 21.52 | 88.06% |
+| 每条位置数组独立压缩 | 17.15 | 90.48% |
+| 原 JSON，保留连接字典 | 2.80 | 98.45% |
+| **位置数组，保留连接字典（当前设计）** | **1.28** | **99.29%** |
+
+数组在保留字典的压缩基础上仍减少约 54.16%；两者共同有效。全体 WebSocket JSON 从 213.12 MB 降到 2.51 MB。所有消息逐条检查解压、还原后的 JSON 深度相等。**这是同一旧抓包的离线编码对比，没有计入 5 Hz 的额外收益，也不包含 HTTP、TCP/IP、TLS 或重传开销；不能当作服务器总出口减少 99%。** 抓包版本为 0.2.2，本地为 0.2.3；当前版本各阶段另有定向回归。
+
+`tools/wire-bench.mjs` 接收 JSONL，每行如下；输出只有汇总量，不包含捕获的身份、名称、会话凭证或消息正文：
+
+```json
+{"connection":1,"start":0,"end":0.001,"message":{"t":"m.public","phase":"COMBAT","round":11}}
+```
+
+```powershell
+node tools/wire-bench.mjs capture-out.jsonl --duration 375.02509593963623
+node --test test/wire-codec.test.js test/wire-bench.test.js test/wire-network.test.js
+node --test test/wire-pressure.test.js
+```
+
+可附 `capturePayloadBytes` / `captureWireBytes` 检查旧量。工具按物理连接维护独立字典，包含该连接所有服务器消息，welcome 保持原 JSON；不能只截取公共状态或每阶段重新建字典。`--max-contexts` 默认 256，最多 4096；这是本机研究工具的内存边界。阶段平均速率采用抓包交付时间窗口，可能相互重叠；不足一秒的过渡只报告字节，不推算持续带宽。耗时包含六种方案和语义校验，不代表生产编码 CPU。
+
+压力测试默认四个 20 席位房＋四名观战、全部使用新协议，5 Hz 合成完整状态，同时下载四个大型 JSON；所有连接共享 100000 B/s（0.8 Mbps）测试预算。检查操作延迟、意外关闭、同身份重连和端口释放。它不是 80 名真人实际游玩，不模拟云端 QoS 或公网包开销。可临时设置测试变量 `SP_WIRE_PRESSURE_MIXED=1` 检查过渡期的一半旧 JSON 连接；相同低带宽、很大的完整快照下该场景未通过延迟要求，旧页面应通过现有安全刷新流程更新。普通带宽下新旧连接共存已有单独回归，不能把兼容性等同于相同带宽成本。具体结果和失败条件见任务记录。

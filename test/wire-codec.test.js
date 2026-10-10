@@ -1,15 +1,28 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { C2S, S2C } from '../shared/protocol.js';
 import { PHASE } from '../shared/constants.js';
 import { WIRE_VERSION, WIRE_MESSAGES, WIRE_RECORDS, WIRE_ENUMS } from '../shared/wireSchema.js';
 import { encodeWire, decodeWire, wireCatalog, WireCodecError } from '../shared/wireCodec.js';
-import { makeMatch } from './match/harness.js';
+import { makeMatch, DATA } from './match/harness.js';
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const roundTrip = (v, direction = null) => decodeWire(clone(encodeWire(clone(v), direction)), direction);
 const nameOf = (f) => typeof f === 'string' ? f : f[0];
+
+test('v1 complete catalog fingerprint prevents accidental published field or enum renumbering', () => {
+  const canonical = (v) => Array.isArray(v) ? v.map(canonical) : v && typeof v === 'object'
+    ? Object.fromEntries(Object.keys(v).sort().map((key) => [key, canonical(v[key])])) : v;
+  const fingerprint = createHash('sha256').update(JSON.stringify(canonical(wireCatalog()))).digest('hex');
+  assert.equal(WIRE_VERSION, 1);
+  assert.equal(fingerprint, 'ea41ddd24cfb8234de364c3890560797892705390ac4ac5cf0c5206b320f71de',
+    'the v1 contract is fixed: introduce a new version and preserve v1 decoding instead of editing this fingerprint');
+});
 
 test('wire ids cover every business message and C2S field; registries are immutable', () => {
   const messages = wireCatalog().messages;
@@ -97,12 +110,17 @@ function recordFor(fields, depth = 0) {
 }
 
 test('all schemas round-trip 2840 deterministic combinations of optional fields and nested values', () => {
+  state = 0x26a10010;
+  const frames = createHash('sha256');
   for (const [, type, direction, fields] of WIRE_MESSAGES) {
     for (let i = 0; i < 40; i++) {
       const message = { t: type, rid: i, ...recordFor(fields) };
+      frames.update(JSON.stringify(encodeWire(clone(message), direction)) + '\n');
       assert.deepEqual(roundTrip(message, direction), message, `${type} combination ${i}`);
     }
   }
+  assert.equal(frames.digest('hex'), '7e229a466db11fcea828c82a9626212c0b324a28ccacb37f5f87da82af689272',
+    'preserve the published v1 bytes as well as round trips; do not regenerate this corpus hash to change the encoding');
 });
 
 function noPublicExtensions(message) {
@@ -139,6 +157,107 @@ test('real match public/private views for 1–20 seats restore exactly, includin
   }
 });
 
+// Exercise current Match-produced optional fields, rather than only generated schema examples or old captures.
+// Boss fixtures start from R1 preparation and jump directly to the target phase; they never play all 14 rounds.
+function checkMatchWire(h) {
+  const seen = new Set(); const phases = new Set(); let count = 0;
+  const check = (msg) => {
+    const original = clone(msg);
+    assert.deepEqual(roundTrip(original, 's2c'), original, original.t);
+    if (original.t === 'm.public') { noPublicExtensions(original); phases.add(original.phase); }
+    seen.add(original.t); count++;
+  };
+  h.onSend.push((_playerId, msg) => check(msg)); h.onBroadcast.push(check);
+  const handle = h.m.handle.bind(h.m);
+  h.m.handle = (playerId, msg) => handle(playerId, roundTrip(clone(msg), 'c2s'));
+  return { seen, phases, count: () => count };
+}
+
+test('all four current twenty-seat event families restore every parallel page and personal reward', () => {
+  const modeId = 'mode_multi_abyss'; const schedule = DATA.choices.schedule[modeId];
+  for (const family of ['bounty', 'supply', 'shop', 'tactic']) {
+    const data = { ...DATA, choices: { ...DATA.choices, schedule: { ...DATA.choices.schedule,
+      [modeId]: { ...schedule, rounds: { ...schedule.rounds, 11: { ...schedule.rounds[11], families: [{ family, weight: 1 }] } } },
+    } } };
+    const h = makeMatch({ humans: 20, difficulty: 'ABYSS', data, fake: true, seed: 84 });
+    const wire = checkMatchWire(h);
+    try {
+      h.start(); h.toPrep(1); h.m.round = 11; h.m.enterSpDraft(); h.m.flush(true);
+      assert.equal(h.m.publicView().sp.family, family);
+      assert.equal(h.m.sp.groups.length, 5);
+      for (const group of h.m.sp.groups) {
+        assert.equal(group.cards.length, 6);
+        while (!group.done) {
+          const playerId = group.order[group.idx]; const idx = group.cards.find((card) => group.taken[card.idx] == null).idx;
+          assert.deepEqual(h.m.handle(playerId, { t: 'g.choice', idx, draftId: h.m.sp.id, groupId: group.id }), { ok: true });
+          h.m.flush(true);
+        }
+      }
+      h.sched.advance(1); h.m.flush(true);
+      assert.equal(h.m.phase, PHASE.PREP);
+      assert.ok(wire.phases.has(PHASE.SP_DRAFT) && wire.seen.has('m.private'));
+      assert.equal(h.m.errorCount, 0, JSON.stringify(h.logs.error)); h.invariants();
+    } finally { h.m.dispose(); }
+  }
+});
+
+test('current twenty-seat client reports and all five Unite rounds retain their complete JSON meaning', () => {
+  const waves = new Map();
+  const h = makeMatch({ humans: 20, fake: true, clientCombat: true, seed: 8620,
+    script: (battle) => {
+      if (battle.kind === 'normal') return { leaks: { p_0: 6 } };
+      if (battle.kind !== 'unite') return {};
+      if (!waves.has(battle.opts.seed)) waves.set(battle.opts.seed, waves.size + 1);
+      return { survivors: { p_0: 6 - waves.get(battle.opts.seed) } };
+    },
+  });
+  const wire = checkMatchWire(h);
+  try {
+    h.start(); h.toPrep(1);
+    const spawn = h.m.wave.spawns.find((s) => s.countInTotal !== false);
+    h.m.wave = { ...h.m.wave, spawns: [{ ...spawn, time: 0, count: 6, interval: 0 }] };
+    for (let wave = 1; wave <= 5; wave++) {
+      assert.ok(h.drive(() => h.m.phase === PHASE.UNITE && h.m.unitePlan.round === wave));
+      const publicView = h.m.publicView(); noPublicExtensions(publicView);
+      assert.deepEqual(roundTrip(clone(publicView), 's2c'), clone(publicView));
+      assert.equal(publicView.unite.roundsMax, 5);
+      if (wave < 5) {
+        assert.ok(publicView.unite.skipVote.id && publicView.unite.skipVote.needed > 0);
+        assert.equal(h.m.handle('p_11', { t: 'g.uniteSkipVote', voteId: publicView.unite.skipVote.id }).ok, true);
+      } else assert.equal(publicView.unite.skipVote, null, 'last wave has no later wave to skip');
+      h.m.onReconnect('p_0');
+    }
+    assert.ok(h.drive(() => h.m.phase === PHASE.SETTLE));
+    h.m.flush(true);
+    assert.deepEqual([...wire.phases].filter((p) => ['COMBAT', 'UNITE', 'SETTLE'].includes(p)).sort(), ['COMBAT', 'SETTLE', 'UNITE']);
+    assert.ok(wire.seen.has('b.start') && wire.seen.has('m.private') && wire.count() > 100);
+    assert.equal(h.m.verifyStats.rejected, 0); assert.equal(h.m.errorCount, 0, JSON.stringify(h.logs.error));
+    h.invariants();
+  } finally { h.m.dispose(); }
+});
+
+test('current twenty-seat leader/hidden-core, departure, resync and result fixtures restore exactly', () => {
+  for (const hidden of [false, true]) {
+    const h = makeMatch({ humans: 20, fake: true, clientCombat: true, instant: false, script: () => ({ bossDps: 0 }) });
+    const wire = checkMatchWire(h);
+    try {
+      h.start(); h.toPrep(1);
+      h.m.round = hidden ? 15 : 14; h.m.bossId = 'boss_1'; h.m.hiddenBossId = 'boss_9'; h.m.teamLp = 200;
+      h.m._planBossWaves(); h.m.startFinalAssault(hidden);
+      h.m.flush(true);
+      const originalMax = h.m.bossPool.maxHp;
+      h.m.onLeave('p_19'); h.sched.advance(500); h.m.flush(true); h.m.onReconnect('p_0');
+      assert.equal(h.m.publicView().bossHp.max, originalMax / 20 * 19);
+      h.m.hiddenLayerSum = 0;
+      h.m.bossPool.damage('p_0', h.m.bossPool.maxHp); h.m._checkFinalEnd();
+      assert.ok(h.run(() => h.ended != null), 'target phase finishes without an opening-to-R14 playthrough');
+      assert.ok(wire.phases.has(hidden ? PHASE.HIDDEN_CORE : PHASE.FINAL_ASSAULT));
+      for (const type of ['m.public', 'm.private', 'b.start', 'b.pool', 'b.end', 'm.result']) assert.ok(wire.seen.has(type), type);
+      assert.equal(h.m.errorCount, 0, JSON.stringify(h.logs.error));
+    } finally { h.m.dispose(); }
+  }
+});
+
 test('UTF-8 JSONL inspection CLI restores the documented original JSON', () => {
   const original = { t: 'm.public', phase: 'COMBAT', players: [{ playerId: '龙千尘', bonds: [] }] };
   const encoded = spawnSync(process.execPath, ['tools/wire.mjs', 'encode'], { input: `${JSON.stringify(original)}\n`, encoding: 'utf8' });
@@ -148,4 +267,21 @@ test('UTF-8 JSONL inspection CLI restores the documented original JSON', () => {
   assert.deepEqual(JSON.parse(decoded.stdout), original);
   const catalog = spawnSync(process.execPath, ['tools/wire.mjs', 'schema'], { encoding: 'utf8' });
   assert.deepEqual(JSON.parse(catalog.stdout), clone(wireCatalog()));
+});
+
+test('CLI reads UTF-8 files directly and exits cleanly on a missing file or invalid arguments', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'sp-wire-inspect-'));
+  // This directory was created here, is inside the OS temp directory, and is the only deletion target.
+  try {
+    const message = { t: 'm.emote', playerId: '中文玩家😀', id: 'hello', ts: 0 };
+    const file = path.join(dir, '中文.jsonl'); writeFileSync(file, '\uFEFF' + JSON.stringify(encodeWire(message)) + '\n', 'utf8');
+    const result = spawnSync(process.execPath, ['tools/wire.mjs', 'decode', file], { encoding: 'utf8', timeout: 10000, windowsHide: true });
+    assert.equal(result.status, 0, result.stderr); assert.deepEqual(JSON.parse(result.stdout), message);
+    for (const args of [['decode', path.join(dir, 'absent')], ['schema', 'unexpected']]) {
+      const failed = spawnSync(process.execPath, ['tools/wire.mjs', ...args], { encoding: 'utf8', timeout: 10000, windowsHide: true });
+      assert.equal(failed.status, 1, failed.stderr); assert.ok(failed.stderr);
+    }
+  } finally {
+    assert.equal(path.dirname(dir), path.resolve(os.tmpdir())); rmSync(dir, { recursive: true, force: true });
+  }
 });
