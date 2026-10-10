@@ -5,7 +5,7 @@ import { StubMatch } from '../server/match/StubMatch.js';
 import { TestClient } from './helpers/wsClient.js';
 import { ERR, ROOM_CAPACITIES } from '../shared/constants.js';
 import { validateC2S } from '../shared/protocol.js';
-import { LobbyDiscovery, compareRoomSummaries } from '../server/lobbyDiscovery.js';
+import { LobbyDiscovery, compareRoomSummaries, roomSummary } from '../server/lobbyDiscovery.js';
 import { Lobby, Room } from '../server/lobby.js';
 import { SessionRegistry } from '../server/net.js';
 import { LOBBY_PAGE_SIZE, LOBBY_UPDATE_MS } from '../shared/lobbyDiscovery.js';
@@ -130,7 +130,7 @@ test('paged directory clamps pages and contains only the declared public summary
   assert.equal(first.totalPages, 3);
   assert.deepEqual(Object.keys(first.rooms[0]), [
     'code', 'mode', 'difficulty', 'capacity', 'playerCount', 'humanCount', 'botCount',
-    'inMatch', 'joinable', 'hostOnline', 'createdAt',
+    'inMatch', 'joinable', 'hostOnline', 'disconnectedRetained', 'createdAt',
   ]);
   lobby.discovery.watch(watcher, { on: true, list: true, page: 1 });
   const middle = watcher.frames.at(-1);
@@ -257,14 +257,92 @@ test('offline host status is displayed without altering vacancy-based quick matc
   const { lobby, player, room } = harness(t);
   const host = player('Host');
   const target = room(host);
+  lobby.addBot(host);
+  lobby.addBot(host);
+  const active = room(player('Active host'));
   host.connected = false;
   lobby.onDisconnect(host);
   const watcher = player('Watcher');
   lobby.discovery.watch(watcher, { on: true, list: true });
-  assert.equal(watcher.frames.at(-1).rooms[0].hostOnline, false);
-  assert.equal(watcher.frames.at(-1).rooms[0].joinable, true);
+  const rows = watcher.frames.at(-1).rooms;
+  assert.deepEqual(rows.map((row) => row.code), [active.code, target.code], 'retained room is listed last');
+  assert.equal(rows[1].hostOnline, false);
+  assert.equal(rows[1].disconnectedRetained, true);
+  assert.equal(rows[1].joinable, true);
   assert.deepEqual(lobby.discovery.quickMatch(watcher), { ok: true });
-  assert.equal(watcher.roomCode, target.code);
+  assert.equal(watcher.roomCode, target.code, 'fewest vacancies still wins despite directory placement');
+});
+
+test('disconnected retention considers only present human seats, not bots or spectators', (t) => {
+  const { lobby, player, room } = harness(t);
+  const host = player('Host');
+  const target = room(host, 8);
+  const guest = player('Guest');
+  assert.deepEqual(lobby.join(guest, { code: target.code }), { ok: true });
+  assert.deepEqual(lobby.addBot(host), { ok: true });
+  const spectator = player('Spectator');
+  assert.deepEqual(lobby.spectate(spectator, { code: target.code }), { ok: true });
+  host.connected = false;
+  lobby.onDisconnect(host);
+  assert.equal(roomSummary(target).hostOnline, false);
+  assert.equal(roomSummary(target).disconnectedRetained, false, 'another connected human keeps the room active');
+  guest.connected = false;
+  lobby.onDisconnect(guest);
+  const retained = roomSummary(target);
+  assert.equal(retained.disconnectedRetained, true, 'online AI and spectator do not prevent retention status');
+  assert.equal(retained.humanCount, 2);
+  assert.equal(retained.botCount, 1);
+  assert.equal(retained.playerCount, 3);
+  target.seats[3] = { playerId: 'departed', seat: 3, isBot: false, left: true, connected: true };
+  assert.equal(roomSummary(target).disconnectedRetained, true, 'departed humans are ignored');
+  assert.equal(roomSummary(target).humanCount, 2);
+  const empty = new Room('ZZZZ', 'coop', 'NORMAL', 0, 4);
+  assert.equal(roomSummary(empty).disconnectedRetained, false, 'no-human transient room is not a retained run');
+});
+
+test('retained rooms are sorted after active rooms before pagination without changing totals', (t) => {
+  const { lobby, player, room } = harness(t);
+  const retained = [];
+  for (let i = 0; i < 12; i++) retained.push(room(player(`Offline host ${i}`, false)));
+  retained.at(-1).match = {};
+  const active = [];
+  for (let i = 0; i < 53; i++) active.push(room(player(`Online host ${i}`)));
+  const watcher = player('Watcher');
+  lobby.discovery.watch(watcher, { on: true, list: true });
+  const first = watcher.frames.at(-1);
+  assert.equal(first.roomCount, 65);
+  assert.equal(first.matchCount, 1, 'offline running room remains in match count');
+  assert.equal(first.joinableCount, 64, 'offline waiting rooms remain joinable');
+  assert.equal(first.online, 54);
+  assert.equal(first.totalPages, 2);
+  assert.deepEqual(first.rooms.map((row) => row.code), active.slice(0, 50).map((r) => r.code));
+  lobby.discovery.watch(watcher, { on: true, list: true, page: 1 });
+  const second = watcher.frames.at(-1);
+  assert.deepEqual(second.rooms.map((row) => row.code), [...active.slice(50), ...retained].map((r) => r.code));
+  assert.equal(second.rooms.slice(3).every((row) => row.disconnectedRetained), true);
+  assert.equal(second.roomCount, first.roomCount);
+  assert.equal(second.matchCount, first.matchCount);
+  assert.equal(second.joinableCount, first.joinableCount);
+});
+
+test('reconnecting human clears retention and returns the room to its original ordering group', (t) => {
+  const { lobby, player, room, flush } = harness(t);
+  const host = player('Returning host');
+  const retained = room(host);
+  const running = room(player('Playing host'));
+  running.match = {};
+  host.connected = false;
+  lobby.onDisconnect(host);
+  const watcher = player('Watcher');
+  lobby.discovery.watch(watcher, { on: true, list: true });
+  assert.deepEqual(watcher.frames.at(-1).rooms.map((row) => row.code), [running.code, retained.code]);
+  host.connected = true;
+  lobby.onHello(host, { resumed: true, repeat: false });
+  flush();
+  const state = watcher.frames.at(-1);
+  assert.deepEqual(state.rooms.map((row) => row.code), [retained.code, running.code]);
+  assert.equal(state.rooms[0].disconnectedRetained, false);
+  assert.equal(state.rooms[0].hostOnline, true);
 });
 
 test('roomless disconnect updates online count and a spectator cannot subscribe', (t) => {
@@ -403,6 +481,12 @@ test('room summary ordering keeps joinable waiting rooms before running rooms', 
   const running = { code: 'CCCC', joinable: false, inMatch: true, createdAt: 0 };
   assert.ok(compareRoomSummaries(waiting, full) < 0);
   assert.ok(compareRoomSummaries(full, running) < 0);
+  const retainedWaiting = { ...waiting, disconnectedRetained: true };
+  const retainedFull = { ...full, disconnectedRetained: true };
+  const retainedRunning = { ...running, disconnectedRetained: true };
+  assert.ok(compareRoomSummaries(running, retainedWaiting) < 0, 'any active group precedes every retained group');
+  assert.ok(compareRoomSummaries(retainedWaiting, retainedFull) < 0, 'retained section preserves waiting order');
+  assert.ok(compareRoomSummaries(retainedFull, retainedRunning) < 0);
 });
 
 test('directory rejects subscription while in a room and quick match has no candidate error', async () => {

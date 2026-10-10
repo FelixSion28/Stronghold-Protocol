@@ -12,11 +12,15 @@ const fail = (error, detail) => (detail ? { error, detail } : { error });
 /** Public directory data: counts and settings, never identities, tokens, or loadouts. */
 export function roomSummary(room) {
   let humanCount = 0;
+  let connectedHumanCount = 0;
   let botCount = 0;
   for (const seat of room.seats) {
     if (!seat || seat.left) continue;
     if (seat.isBot) botCount++;
-    else humanCount++;
+    else {
+      humanCount++;
+      if (seat.connected) connectedHumanCount++;
+    }
   }
   const host = room.seatOf(room.hostId);
   return {
@@ -30,14 +34,16 @@ export function roomSummary(room) {
     inMatch: !!room.match,
     joinable: room.mode === 'coop' && !room.match && room.freeSeat() >= 0,
     hostOnline: !!host && !host.left && host.connected,
+    disconnectedRetained: humanCount > 0 && connectedHumanCount === 0,
     createdAt: room.createdAt,
   };
 }
 
-/** Joinable waiting rooms, other waiting rooms, running matches; stable within each group. */
+/** Fully disconnected rooms go last; both sections retain the original waiting/running ordering. */
 export function compareRoomSummaries(a, b) {
   const group = (room) => (room.inMatch ? 2 : room.joinable ? 0 : 1);
-  return group(a) - group(b) || a.createdAt - b.createdAt || (a.code < b.code ? -1 : a.code > b.code ? 1 : 0);
+  return Number(!!a.disconnectedRetained) - Number(!!b.disconnectedRetained)
+    || group(a) - group(b) || a.createdAt - b.createdAt || (a.code < b.code ? -1 : a.code > b.code ? 1 : 0);
 }
 
 export class LobbyDiscovery {
