@@ -5,7 +5,7 @@
 | 字段 | 内容 |
 |---|---|
 | 开始 / 最后更新 | 2026-10-10 / 2026-10-10，Asia/Shanghai |
-| 状态 | 进行中：位置协议与 WebSocket 接入完成并通过定向回归；HTTP 优化及后续验证进行中 |
+| 状态 | 进行中：协议 / 网络 / HTTP 完成并定向验证；抓包重放与更深入压力验证继续 |
 | 类型 | 性能优化、协议架构、调查与验证 |
 | 分支与开始 HEAD | 从核心 `feat/IncreasePlayerCapacity` 的 `cf30fb2980fe27363dcafdfb677317f80c503b49` 创建 `perf/compact-wire-bandwidth`；开始工作区干净 |
 | 上游基线 | 本地已合并 v0.2.3，`1db8e51023ae6abaec9370beb81a513d5c4d0b01`；本任务未联网刷新远程 |
@@ -38,6 +38,9 @@
 | `server/net.js`、`server/lobby.js`、`public/js/net.js` | 每条物理连接独立协商；一次广播只生成一次原 JSON / 紧凑文本；旧格式存储的结果仍通过协商边界重放；异常解码重连并退回 JSON | 新旧客户端、观战和持久身份共存；界面只接收还原后的业务对象 |
 | `server/http/websocket.js` | permessage-deflate，服务端保留 32 KiB 字典、客户端不保留，level 6 / memLevel 7、并发 4；SP_WS_DEFLATE 应急关闭 | 浏览器原生解压，利用跨消息重复；压缩工作与解压后输入有边界 |
 | `server/match/match/common.js` | 公共状态常规节流 200 ms，原有强制同步与去重保留 | 降至最高 5 Hz，不降低模拟步长或个人操作响应频率 |
+| `server/http/runtimeCache.js`、`static.js`、`public/js/runtime.js` | 内容 SHA-256 地址及完整 import map，数据 / 经典脚本使用相同版本目录；拒绝过期 rv，缓存有界 | 让二次访问复用整个依赖图，按文件独立失效；不只缓存入口，避免混版 |
+| `server/http/files.js`、`assetCache.js` | 异步 Brotli / gzip 协商，变体 ETag、并发 2、压缩 LRU；素材目录去掉同步 gzip；旧代码 ?v 不再被误标一年 immutable | 减少正文和事件循环阻塞，保留 HEAD / 304 / Range 及素材填充规则 |
+| `docs/HTTP_CACHE.md`、D022、buildTag vendor 覆盖 | 说明图版本、缓存失效、重启、原生模块 / Worker 边界、回退和验证 | 后续维护者能正确增加依赖和部署更新；首次冷访问仍会使用带宽 |
 
 ## 验证
 
@@ -51,14 +54,18 @@
 | `node --test test/match/realtime.test.js` | 真实双客户端（数组 / JSON 混用）＋2 AI，运行到第 4 回合休整；Windows Node | 1 项通过，约 25 s；未跑完整 14 回合 |
 | 网络、房间与身份定向批次 | lobby / lobby-discovery / room-management / client-static / client-identity-handshake / client-identity-session / lobby-capacity / setup-reroll-ws；日志保留 `.cache/compact-wire/network-regression.log` | 475 项通过，0 失败；包含掉线保留、重连及旧 JSON 结算重放 |
 | 协议 / 网络 / 文档合并复验，类型检查及相关文件 ESLint | 网络阶段提交前，补齐真实战斗输入/结果的嵌套目录；`.cache/compact-wire/wire-stage.log` | 47 项通过，类型检查通过；ESLint 0 错误，2 条原有 no-useless-assignment 警告（net.js token / lobby.js seed） |
+| HTTP / 客户端定向批次 | runtime-http / asset-cache-http / data / assets / assets-diy / runner / runner-pending / buildGuard / build；`.cache/compact-wire/http-client-regression.log` | 156 项：154 通过、2 个原有环境相关跳过、0 失败；首次检查修正了小目录压缩阈值与错误响应缓存断言，修正后通过 |
+| `SP_E2E=1 node --test test/compact-wire.browser.test.js` | Edge 155.0.4283.45；1920×1080 / 1280×720；真实 UI＋19 独立 WS 客户端，混合编码，首回合休整；`.cache/compact-wire/edge-1791631495441/report.json` | 1 项通过（约 11 s）；449 资源首次 2,855,933 B、再次正文 0 B，447 个 Brotli 响应；模拟数据实例身份一致，60 个数组帧，JSON 降级同身份恢复；截图人工检查通过，无页面异常，浏览器 / 客户端 / 端口均释放。首次运行仅因测试误用 .game-screen 选择器失败，改用实际 canvas 后复验 |
+| 相关 ESLint 与导入扫描 | HTTP、客户端、Edge 新测试 | 新文件 0 错误 / 0 警告；触及旧文件有 5 条原有无用赋值警告；导入扫描仍列出私有 nodeData 的 3 个已知 Node 内建依赖，无新增违规，HTTP 私有边界测试通过 |
+| HTTP 阶段最终复验 | lobby / runtime-http / asset-cache-http / static-local-art / simServe / build / docs-paths / docs-consistency；`.cache/compact-wire/http-final.log` | 131 项通过，0 跳过、0 失败；任意旧 v 查询不再把代码/数据标为 immutable，素材 v 策略仍通过回归；git diff --check 通过 |
 
 不自动进行从开局到第 14 回合结束的完整长流程；各阶段采用定向状态机测试和短浏览器流程。生产链路与真实多机真人压测需要部署环境，不能将本机检查写成线上验证。
 
 ## 结果、遗留与接手
 
-- 实现结果：独立分支、可逆编码、协商与压缩及 5 Hz 公共状态接入已完成；HTTP 优化待完成。
-- 未确定或未完成：真实抓包重放测量、更多并发压力、HTTP、Edge 检查及最终文档。
-- 提交 / 远程 / 素材 / 线上：协议目录第一阶段 `721081b`；网络接入与本文的更新同属下一功能提交（按路径查询）；本任务未操作远程或素材，未部署。
+- 实现结果：独立分支、可逆编码、协商与压缩及 5 Hz、HTTP 内容缓存 / Brotli 已完成；Edge 短流程通过。
+- 未确定或未完成：真实抓包重放测量、更多并发压力及最终文档。
+- 提交 / 远程 / 素材 / 线上：协议目录第一阶段 `721081b`；网络接入 `ec9084c`；HTTP 与本文更新同属下一功能提交（按路径查询）；本任务未操作远程或素材，未部署。
 - 接手入口：`shared/protocol.js`、`server/net.js`、`public/js/net.js`、`server/lobby.js`、`server/match/match/messaging.js`、`server/http/`。
 
 ## 后续补充

@@ -28,8 +28,8 @@
 
 | 项目 | 已核实状态 |
 |---|---|
-| 分支 | `feat/IncreasePlayerCapacity` |
-| 最近本地开发 | [DEV-20261010-08](records/2026-10-10-08-assets-v023-pack.md)：重新生成 v0.2.3 完整素材包和旧包对应增量，逐项 SHA 核实与 Edge 两包累积导入/刷新通过，资源已释放；未上传或部署。此前 [DEV-20261010-07](records/2026-10-10-07-room-management.md) 完成断线标注、动态 AI 上限及房主转让 |
+| 分支 | 本次测试分支 `perf/compact-wire-bandwidth`，从核心 `feat/IncreasePlayerCapacity` 的 `cf30fb2980fe27363dcafdfb677317f80c503b49` 创建；核心分支保持原 HEAD |
+| 最近本地开发 | [DEV-20261010-09](records/2026-10-10-09-compact-wire-bandwidth.md)：位置协议、WebSocket 压缩 / 5 Hz，以及 HTTP 内容版本缓存 / Brotli 已实现并定向验证；抓包重放与压力检查继续，未推送或部署。此前 [DEV-20261010-08](records/2026-10-10-08-assets-v023-pack.md) 完成 v0.2.3 素材包及增量核对 |
 | 本次合并前的 HEAD | `a1565bc56eda6a5cc27c007b93af2eb071c6610b`；既有 `v0.2.1-20p.2` 仍指向 `b4c6ebe`，不移动旧标签 |
 | 已合并的上游版本 | v0.2.3，`1db8e51023ae6abaec9370beb81a513d5c4d0b01`；保留完整历史，包版本 0.2.3 |
 | 最近合并提交 | `2e73c1aca650b768d8338f2397b4113e52ac88a3`，见 [DEV-20261010-05](records/2026-10-10-05-upstream-v0.2.3.md)；父提交为 `a1565bc` 与 `1db8e51`；上次 v0.2.2 为 `e6f26c0`，ZIP 修复 `af5e647`，初次 v0.2.1 合并 `90e01ad` |
