@@ -296,6 +296,8 @@
 .lobby-directory__room-meta { color: var(--text-lo); font-size: calc(.13 * var(--t)); white-space: nowrap; }
 .lobby-directory__status { padding: .02rem .07rem; border: 1px solid var(--mint-700); color: var(--mint-400); font-size: calc(.12 * var(--t)); }
 .lobby-directory__status.is-match { border-color: var(--line-2); color: var(--text-dim); }
+.lobby-directory__room.is-retained { background: rgba(255, 180, 80, .025); }
+.lobby-directory__retained-note { margin: 0 0 .08rem; color: var(--text-lo); font-size: calc(.13 * var(--t)); line-height: 1.5; }
 .lobby-directory__offline { color: var(--amber); font-size: calc(.12 * var(--t)); }
 .lobby-directory__join { height: .34rem; padding: 0 .1rem; }
 .lobby-directory__empty { display: grid; place-items: center; min-height: 1.7rem; color: var(--text-lo); font-size: calc(.16 * var(--t)); text-align: center; }

@@ -11,8 +11,9 @@ export function LobbyOnlinePill({ count, connected }) {
 }
 
 export function LobbyRoomRow({ room, onJoin, busy, connected }) {
+  const retained = room.disconnectedRetained === true;
   const state = room.inMatch ? t('进行中') : room.mode === 'solo' ? t('独立模拟') : room.joinable ? t('等候加入') : t('房间已满');
-  return html`<div class=${`lobby-directory__room${room.inMatch ? ' is-match' : ''}`} data-room-code=${room.code}>
+  return html`<div class=${`lobby-directory__room${retained ? ' is-retained' : room.inMatch ? ' is-match' : ''}`} data-room-code=${room.code}>
     <div class="lobby-directory__room-main">
       <span class="lobby-directory__room-code num" title=${t('房间号')}>${room.code}</span>
       <span class="lobby-directory__room-mode">${room.mode === 'solo' ? t('独立房间') : t('同盟模拟')}</span>
@@ -22,7 +23,8 @@ export function LobbyRoomRow({ room, onJoin, busy, connected }) {
       <span class=${`lobby-directory__status${room.inMatch ? ' is-match' : ''}`}>${state}</span>
       <span class="num">${t('{used} / {capacity} 席', { used: room.playerCount, capacity: room.capacity })}</span>
       <span class="lobby-directory__people">${t('{n} 个真人', { n: room.humanCount })}${room.botCount > 0 ? ` · ${t('{n} 个 AI', { n: room.botCount })}` : ''}</span>
-      ${room.hostOnline === false ? html`<span class="lobby-directory__offline">${t('房主离线')}</span>` : null}
+      ${retained ? html`<span class="lobby-directory__offline" title=${t('断线保留房间等待原玩家重连，按原有断线期限自动释放。')}>${t('断线保留')}</span>`
+        : room.hostOnline === false ? html`<span class="lobby-directory__offline">${t('房主离线')}</span>` : null}
     </div>
     ${room.inMatch || room.mode === 'solo' ? null : html`<${Button} variant="secondary" size="sm" iconRight="chevronRight"
         class="lobby-directory__join" disabled=${busy || !connected || !room.joinable} onClick=${() => onJoin(room.code)}>${t('加入房间')}<//>`}
@@ -45,6 +47,8 @@ export function LobbyRoomList({ state, connected, onClose, onRefresh, onPage, on
     <div class="lobby-directory__note"><span>${t('房间列表实时更新')}</span>
       <${Button} variant="secondary" size="sm" icon="refresh" disabled=${state.loading || !connected} onClick=${onRefresh}>${state.error ? t('重试') : t('刷新')}<//>
     </div>
+    ${state.rooms.some((room) => room.disconnectedRetained === true)
+      ? html`<p class="lobby-directory__retained-note">${t('断线保留房间等待原玩家重连，按原有断线期限自动释放。')}</p>` : null}
     ${!connected ? html`<div class="lobby-directory__empty" role="status">${t('尚未连接到服务器，请稍候')}</div>`
       : state.error ? html`<div class="lobby-directory__empty is-error" role="alert">${t('无法获取房间列表，请重试。')}</div>`
       : state.loading && !state.rooms.length ? html`<div class="lobby-directory__empty" role="status"><${Spinner} size="sm" label=${t('正在获取房间列表…')} /></div>`

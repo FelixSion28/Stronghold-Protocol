@@ -5,11 +5,11 @@
 | 字段 | 内容 |
 |---|---|
 | 开始 / 最后更新 | 2026-10-10 / 2026-10-10，Asia/Shanghai |
-| 状态 | 进行中 |
+| 状态 | 已完成：本地实现与定向验证；未推送或部署 |
 | 类型 | 调查 / 功能 |
 | 分支与开始 HEAD | `feat/IncreasePlayerCapacity`，`e838e875fe7f4f323592ce84a605a9b51df7cf9e`；开始时工作区干净 |
 | 上游基线 | v0.2.3，`1db8e51023ae6abaec9370beb81a513d5c4d0b01`；本次只核对本地缓存，未拉取 |
-| 提交归属 | 目录后端 `b1fb1df` 与本文首次提交；房间管理后端与本文后续更新同一提交；界面提交待完成 |
+| 提交归属 | 目录后端 `b1fb1df` 与本文首次提交；房间管理后端 `1422e4e`；界面及最终记录与本文后续更新同一提交，按记录路径查询 |
 | 关联 | D010、D017、D019、D020；[大厅目录](2026-10-10-03-lobby-discovery.md)，[顶部单行](2026-10-10-06-lobby-toolbar-row.md) |
 
 ## 需求、范围与验收
@@ -46,8 +46,11 @@
 | `server/lobby.js` / 房主 | 等候房转让给在线真人并交换实际 P1；自动迁移和局终统一归位，局内不改座位 | 避免固定卡池组、战场与回放身份错位 |
 | `shared/protocol.js` / `constants.js` | `room.transferHost {playerId}`、`AI_LIMIT`；AI 移除可选身份保护 | 权限及确认后身份由服务端核对；兼容旧客户端无身份 AI 移除 |
 | `tools/package.mjs` / [服主说明](../../SERVER_SETTINGS.md) | 发布新 CLI 与说明，排除 runtime 配置 | 将功能分发给其他服主，限制由各实例自行决定 |
+| `public/js/screens/room.js` / `room.css` | 成员卡皇冠转让确认，AI 已用/上限及达限禁用；双按钮独立布局，手机横向触摸区不跨过相邻按钮 | 权限随 room.state 更新；修正实机发现的隐藏触摸区覆盖，而不改全局工具栏 |
+| `public/js/ui/lobbyDiscovery.js` / `lobby.css` | 保留原进行中/等候状态，另加 amber 断线保留标与期限说明 | 避免断线标记掩盖能否加入的原状态，等待房仍允许原规则的手动加入 |
+| 四个 `public/i18n` 包 | 补房主、转让、AI 限额及断线保留文案 | 保持全部语言可读与占位符一致 |
 
-前端交互及 Edge 验证仍在实施。
+界面只调整房间成员操作、限额条和目录标记，不改大厅顶部工具布局。验证截图和报告留在忽略缓存 `.cache/room-management-ui/run-1791617879389/`，关键结论如下，不依赖缓存才能接手。
 
 ## 验证
 
@@ -61,14 +64,23 @@
 | `node --test test/lobby.test.js test/lobby-kick.test.js test/lobby-capacity.test.js test/lobby-discovery.test.js test/lobby-ownership.test.js` | 平台 StubMatch 与真实 WebSocket 回归 | 97/97 通过，约 21.5 秒；测试资源已释放 |
 | 后端及配置定向 ESLint | 新增模块、CLI、index、lobby、protocol、constants 与新测试 | 0 错误；lobby 两个原有 unused 警告保留 |
 | `node --test --test-name-pattern='selection:\|refusal list:\|server owner CLI' test/package.test.js`；`node --test --test-name-pattern='the real tracked tree:' test/package.test.js` | 仅选择规则与源码引用闭包；新增文件加入本地索引后核对 | 3+1 项通过；新 CLI/说明发布，私有配置不发布；未执行完整打包 |
+| `node --test test/ui/room-management.test.js test/ui/lobby-discovery-ui.test.js test/ui/ai-picks-last.test.js` | Preact 派生状态及节点交互 | 12/12 通过；达限/超限/不限/旧帧、在线真人转让资格、AI 身份请求、断线标与原状态同时展示 |
+| `node --test --test-name-pattern='room: normalizeSeats\|room: spectator seats' test/client-static.test.js` | 既有房间/观战派生状态 | 2/2 通过 |
+| `node tools/i18n.mjs check --all --strict public/js/screens/room.js public/js/ui/lobbyDiscovery.js shared/constants.js` | en/ja/ko/zh-TW | 每包 192/192，0 缺失、0 错误 |
+| `npx eslint public/js/screens/room.js public/js/ui/lobbyDiscovery.js test/ui/room-management.test.js test/ui/lobby-discovery-ui.test.js` | 前端定向检查 | 通过 |
+| 独立代码审查与 `node --test test/room-management.test.js test/server-settings.test.js` | 后端/CLI/权限/交换与生命周期 | 未发现阻断问题；19/19 通过；测试服务与连接已关闭 |
+| Edge 首轮失败及修正 | 844×390 四席，ElementFromPoint 和伪元素 computed width | 原通用 44 px 触摸区域覆盖左侧皇冠；局部四 class 优先级规则限制横向到按钮与半个 gap，垂直扩大保留。不是单纯图标几何重叠 |
+| `$env:SP_E2E='1'; node --test test/room-management.browser.test.js` | 无头 Edge 155.0.4283.45；真实 WebSocket、2 真人；4/8/20 席 × 1920×1080、1280×720、844×390 共 9 布局 | 1/1 通过，20.9 秒。按钮点击命中、不重叠/越界；真实确认取消/转让及 P1 交换、旧房主失权与准备要求；5 AI→限额 2→0→不限及恢复添加；CLI 98/897/1002 ms 同步。断线独立模拟保留并置底，原 token 重连 resumed=true、原身份与对局保留。无 JS 错误 |
+| `npx eslint test/room-management.browser.test.js`；`git diff --check` | 浏览器回归与最终差异 | 通过 |
+| 视觉检查及资源释放 | 最终 `ai-limit-2-host-p1-1920.png`、`retained-directory-1920.png`；report.cleanup | 皇冠/踢人、20 席上限条与空席完整显示；原进行中与断线保留同时显示。浏览器、全部 WebSocket、服务器及设置监控已关闭；测试端口 54017 已无法访问，未占用 3000 |
 
-新增功能及 Edge 验证待执行；不会将计划写成通过。
+未执行完整对局、golden、完整打包或生产服务器压测；短 StubMatch 只验证平台生命周期与 UI，不代替真实战斗/多人压力。
 
 ## 结果、遗留与接手
 
-- 实现结果：调查、目录和房间管理后端完成，前端与 Edge 验证进行中。
+- 实现结果：调查、目录标记与置底、动态服主 AI 限额、等待室 P1 房主转让均完成并通过定向验证。
 - 未确定或未完成：生产截图中各对局是否真实完成未核实；需服务器日志或可复现步骤才能确认额外生命周期问题。
-- 提交 / 远程 / 素材 / 线上：提交待完成；本次未操作远程、未改素材、未部署。
+- 提交 / 远程 / 素材 / 线上：分批本地提交；本次未操作远程、未改素材、未部署，服主生产上限未代设，使用 [命令说明](../../SERVER_SETTINGS.md) 配置。
 - 接手入口：`server/lobby.js`、`server/lobbyDiscovery.js`、`server/serverSettings.js`、`tools/server-settings.mjs`、等待室与目录 UI。
 
 ## 后续补充

@@ -1332,5 +1332,21 @@
   "请等待所有玩家连接后再发起投票": "Wait for all players to connect before starting a vote.",
   "同意重刷": "Agree to reroll",
   "拒绝重刷": "Reject reroll",
-  "取消投票": "Cancel vote"
+  "取消投票": "Cancel vote",
+  "房主": "Host",
+  "由房主选择": "Chosen by the host",
+  "由房主设置": "Set by the host",
+  "转让房主给该博士": "Transfer host to this Doctor",
+  "服主设置的每房 AI 队友上限": "Maximum AI teammates per room set by the server owner",
+  "AI 队友 {used} / {limit}": "AI teammates {used} / {limit}",
+  "已达上限": "Limit reached",
+  "已达到服务器允许的 AI 队友上限": "The server limit for AI teammates has been reached",
+  "转让房主": "Transfer host",
+  "确定将房主转让给「{name}」吗？双方将交换席位，新房主位于 P1。": "Transfer host to “{name}”? Your seats will be swapped, and the new host will occupy P1.",
+  "转让": "Transfer",
+  "你是同盟的房主，离开后房主身份将移交或同盟解散。确定离开吗？": "You are the Alliance host. Leaving will transfer host ownership or disband the Alliance. Leave?",
+  "已就绪 · 等待房主开始模拟": "Ready · Waiting for the host to start the simulation",
+  "准备就绪后，房主即可开始模拟": "Once ready, the host can start the simulation",
+  "断线保留": "Retained for reconnect",
+  "断线保留房间等待原玩家重连，按原有断线期限自动释放。": "Retained rooms await their original players and expire after the existing reconnect timeout."
 }

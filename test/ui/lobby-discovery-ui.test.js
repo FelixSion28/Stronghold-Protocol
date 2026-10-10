@@ -55,6 +55,21 @@ test('in-progress and solo rooms expose no entry button; full waiting rooms cann
   assert.equal([...walk(full)].find((node) => node.type === Button).props.disabled, true);
 });
 
+test('all-human-disconnected rooms show reconnect retention separately from ordinary offline hosts', () => {
+  const retained = LobbyRoomRow({ room: { ...room, inMatch: true, disconnectedRetained: true, joinable: false }, connected: true });
+  assert.match(text(retained), /断线保留/);
+  assert.match(text(retained), /进行中/);
+  assert.doesNotMatch(text(retained), /房主离线/);
+  const status = [...walk(retained)].find((n) => n.props?.class === 'lobby-directory__offline');
+  assert.match(status.props.title, /原玩家重连/);
+  const waiting = LobbyRoomRow({ room: { ...room, disconnectedRetained: true }, connected: true });
+  assert.match(text(waiting), /等候加入/);
+  assert.match(text(waiting), /断线保留/);
+  assert.equal([...walk(waiting)].find((n) => n.type === Button).props.disabled, false);
+  const list = LobbyRoomList({ state: { ...emptyLobbyDiscovery(), open: true, rooms: [{ ...room, disconnectedRetained: true }] }, connected: true });
+  assert.match(text(list), /断线保留房间等待原玩家重连/);
+});
+
 test('offline lobby keeps explanatory count placeholder and disables matching and listing', () => {
   const pill = LobbyOnlinePill({ count: 100, connected: false });
   assert.equal(pill.props['aria-label'], '服务器在线人数');
