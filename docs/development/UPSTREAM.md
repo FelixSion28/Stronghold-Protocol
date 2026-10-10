@@ -24,6 +24,9 @@
 | 审计与界面 | `server/match/audit.js`、`tools/matchrun.mjs`、队伍栏与表情 UI | 扩容事件可以回放审计，图标和表情仍能显示 |
 | 普通公告与紧急通知 | `server/index.js`、`server/http/routes.js`、`server/announcements.js`、`server/announcementNotices.js`、`public/js/main.js` | D014 普通发布不打断对局，显式 notify 独立队列；D015 仅公告目录 assets 的只读图片，全部 host、广播与关闭清理保留 |
 | 个人选择及战绩 | `match/intents.js`、`match/spDraft.js`、`choiceOverlay.js`、`ui/stats.js` | 个人 choiceId 与公共 draftId/groupId 不串用；二十席位末席本人仍有自己的统计、导入导出和完整回看 |
+| 开局重刷 | `match/setupVote.js`、`match/platform.js`、`ui/setupReroll.js` | D018 全体真人一致同意；重建全部固定组与自选库存，准备失败不部分替换；策略采用 50 秒，机变时长不变 |
+| 素材预缓存及安装 | `server/assetCacheCatalog.js`、`server/http/assetCache.js`、`public/js/assetCache.js`、`public/asset-cache-sw.js`、`public/js/pwa.js` | D016 按哈希补缺、单缓存 SW、对局暂停批量任务；安装按钮不能引入第二套应用缓存；大厅/房间入口保留 |
+| 大厅目录及身份恢复 | `server/lobbyDiscovery.js`、`server/lobby.js`、`public/js/ui/lobbyDiscovery.js`、`public/js/net.js`、`ui/resumeMatch.js` | D017 实际空席匹配、仅大厅订阅、断线与恢复后重订阅；恢复选择时普通自动公告延后，新增按钮不遮挡标题 |
 
 每个有实际取舍的冲突记录「上游改了什么 / 我们需要什么 / 最终怎么结合 / 如何验证」。不能只写「冲突已解决」，也不能未经核对整文件选 ours/theirs。用户决定需要改变时先提出具体选项。
 
@@ -54,6 +57,8 @@ python3 tools/local-extract/extract.py --webp
 ```
 
 Windows 上解释器名称依实际环境选择。镜像、代理、素材补齐、3D 贴图提取分别记录是否执行和结果；不要把「源码合并完成」写成「素材更新完成」。`public/assets` 的下载内容不提交到 Git，现有下载文件也不因同步自动清空。
+
+已有素材较完整时优先使用 `node tools/fetch-assets.mjs --add-only`。若新干员语音在提交清单中存在、旧下载索引却未包含，先更新对应索引，再按清单定向补缺；不要因旧索引或下载失败使用 `--allow-shrink` 删除条目。v0.2.3 的 313 个缺项与索引修复见 [本次记录](records/2026-10-10-05-upstream-v0.2.3.md)。清单引用、下载工具的完整计划、可选本地素材和统一 ZIP 分别核对，旧 ZIP 可以按 D016 复用匹配哈希，源码更新不代表 ZIP 已重建。
 
 历史上用户提供过 `.cache/proxy/` 下的下载启动脚本。缓存可能被清理，使用前核实其内容和存在性；记录采用的方法和结果，不依赖该脚本作为唯一长期说明。
 

@@ -127,6 +127,58 @@ test('restored Game does not fetch at startup, poll or focus; returning to a nor
   } finally { installed.dispose(); }
 });
 
+test('local recovery selection delays startup, polling and focus auto-checks until it closes', async () => {
+  const appStore = shell(true);
+  const timers = fakeTimers();
+  const net = fakeEvents();
+  const browserEvents = fakeEvents();
+  const browser = { addEventListener: browserEvents.on, removeEventListener() {}, document: { visibilityState: 'visible' } };
+  const checks = [];
+  const controller = { refresh: (options) => checks.push(options), contextChanged() {}, close() {} };
+  const installed = installAnnouncements({ appStore, selectRoute: route, net, timers, browser, controller, isMounted: () => true, pollMs: 1000 });
+  try {
+    net.emit('welcome');
+    appStore.set({ connection: { status: 'online' } });
+    appStore.patch('ui', { resumePromptOpen: true });
+    await timers.advance(10_000);
+    browserEvents.emit('focus');
+    await timers.advance(ANNOUNCEMENT_MOUNT_DELAY_MS);
+    assert.equal(installed.getContext().ready, false);
+    assert.deepEqual(checks, [], 'ordinary reminders must not cover the recovery choices');
+    appStore.patch('ui', { resumePromptOpen: false });
+    await timers.advance(ANNOUNCEMENT_MOUNT_DELAY_MS);
+    assert.equal(installed.getContext().ready, true);
+    assert.deepEqual(checks, [{ auto: true }], 'closing recovery schedules the deferred entrance check');
+  } finally { installed.dispose(); }
+});
+
+test('an in-flight automatic announcement waits for local recovery selection to finish', async () => {
+  const appStore = shell();
+  const target = createStore(createAnnouncementState());
+  const timers = fakeTimers();
+  let installed, finishIndex;
+  const controller = createAnnouncementController({
+    target, storage: null,
+    getContext: () => installed?.getContext() || { route: 'title', ready: false },
+    fetchImpl: async (url) => url === '/api/announcements'
+      ? new Promise((resolve) => { finishIndex = () => resolve({ ok: true, json: async () => index }); })
+      : { ok: true, json: async () => ({ ...item, markdown: '正文' }) },
+  });
+  installed = installAnnouncements({ appStore, selectRoute: route, timers, browser: {}, controller, isMounted: () => true, pollMs: 0 });
+  try {
+    await timers.advance(ANNOUNCEMENT_MOUNT_DELAY_MS);
+    assert.equal(typeof finishIndex, 'function');
+    appStore.patch('ui', { resumePromptOpen: true });
+    finishIndex();
+    await timers.advance(0);
+    assert.equal(target.get().open, false, 'a late index response cannot open over recovery');
+    appStore.patch('ui', { resumePromptOpen: false });
+    await timers.advance(0);
+    assert.equal(target.get().open, true, 'the pending publication can be shown after recovery closes');
+    assert.equal(target.get().detail.markdown, '正文');
+  } finally { installed.dispose(); controller.dispose(); }
+});
+
 test('UI lifecycle with the real model closes on Game and does not duplicate a revision on reconnect', async () => {
   const appStore = shell();
   const target = createStore(createAnnouncementState());

@@ -189,7 +189,7 @@ export function installAnnouncements({
     const route = selectRoute(s);
     return {
       route,
-      ready: !disposed && isMounted() && route !== 'game' && !s.ui?.restoring
+      ready: !disposed && isMounted() && route !== 'game' && !s.ui?.restoring && !s.ui?.resumePromptOpen
         && (route === 'title' || (welcomed && restored && s.connection?.status === 'online')),
     };
   };
@@ -220,6 +220,7 @@ export function installAnnouncements({
   const unsubscribe = appStore.subscribe((s, prev) => {
     const route = selectRoute(s);
     if (route !== selectRoute(prev) || s.ui?.restoring !== prev.ui?.restoring
+        || s.ui?.resumePromptOpen !== prev.ui?.resumePromptOpen
         || s.connection?.status !== prev.connection?.status) {
       controller.contextChanged();
       schedule();
