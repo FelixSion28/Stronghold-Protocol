@@ -2,7 +2,9 @@
 
 > English translation of [README.md](../README.md). The Chinese original is the authoritative version.
 
-An **unofficial fan remake** of *Stronghold Protocol: Alliance*, the seasonal auto-chess tower-defense mode of *Arknights*: play instantly in the browser, solo or 1–4 player online co-op.
+An **unofficial fan remake** of *Stronghold Protocol: Alliance*, the seasonal auto-chess tower-defense mode of *Arknights*: play instantly in the browser, solo or up to 20-player online co-op in this Felix fork.
+
+This fork integrates YuriRestia's outfits, damage charts, Alliance calls, difficulty details and matchmaking while preserving fixed player groups and 1–5× phase timers. Public solo matchmaking forms four-player games; private rooms retain their chosen 4/8/10/16/20-seat capacity. Chinese remains the initial interface and voice language. See the [integration guide](../docs/YURI_FEATURES.md). The inherited setup guide below describes the upstream baseline; upstream release bundles do not include these fork extensions, and generation routing is available as an optional tool rather than enabled on the current Docker deployment.
 
 ![version](https://img.shields.io/badge/version-0.2.4-2ea44f)
 ![license](https://img.shields.io/badge/code%20license-GPL--3.0--or--later-blue)
