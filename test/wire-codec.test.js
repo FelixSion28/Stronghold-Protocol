@@ -10,6 +10,7 @@ import { PHASE } from '../shared/constants.js';
 import { WIRE_VERSION, WIRE_MESSAGES, WIRE_RECORDS, WIRE_ENUMS } from '../shared/wireSchema.js';
 import { encodeWire, decodeWire, wireCatalog, WireCodecError } from '../shared/wireCodec.js';
 import { makeMatch, DATA } from './match/harness.js';
+import { normalizeSnapshot, SnapshotBuffer } from '../public/js/render/interp.js';
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const roundTrip = (v, direction = null) => decodeWire(clone(encodeWire(clone(v), direction)), direction);
@@ -129,8 +130,9 @@ function noPublicExtensions(message) {
   function record(v, fields, path) {
     if (v == null) return;
     const known = new Set(fields.map(nameOf));
-    for (const k of Object.keys(v)) assert.ok(k === 't' || known.has(k) || (path === 'm.public' && k === 'timerScale'),
-      `${path}.${k} needs an explicit position or an explicitly supported extension`);
+    for (const k of Object.keys(v)) assert.ok(k === 't' || known.has(k)
+      || (path === 'm.public' && k === 'timerScale')
+      || (fields === WIRE_RECORDS.card && k === 'soldOut'), `${path}.${k} needs an explicit position or declared v1 extension`);
     for (const field of fields) if (typeof field !== 'string' && Object.hasOwn(v, field[0])) {
       const [key, type] = field;
       if (typeof type === 'string') record(v[key], WIRE_RECORDS[type], `${path}.${key}`);
@@ -139,6 +141,28 @@ function noPublicExtensions(message) {
   }
   record(message, WIRE_MESSAGES.find((m) => m[1] === 'm.public')[3], 'm.public');
 }
+
+test('v0.2.4 stock, prep medics and zero coins retain v1 extension semantics', () => {
+  const publicMessage = { t: 'm.public', sp: {
+    cards: [{ idx: 0, kind: 'item', id: 'item-a', soldOut: true }],
+    groups: [{ id: 0, cards: [{ idx: 1, kind: 'item', id: 'item-b', soldOut: false }] }],
+  } };
+  noPublicExtensions(publicMessage);
+  assert.deepEqual(roundTrip(publicMessage, 's2c'), publicMessage);
+  const privateMessage = { t: 'm.private', bossMate: { playerId: 'p20', side: 1, units: [] },
+    prepMapChars: Array.from({ length: 20 }, (_, i) => ({ uid: -i - 1, defId: 'reserve-medic', x: i % 10, y: 0 })) };
+  assert.deepEqual(roundTrip(privateMessage, 's2c'), privateMessage);
+  const snap = { t: 0, units: [[1, 0, 0, 100, 100, 0, 0, 0, 0]], coins: [[1, 0, 10]] };
+  const frame = { ...snap, t: 'b.snap', gt: snap.t, fieldId: 'f20' };
+  const restored = roundTrip(frame, 's2c');
+  assert.deepEqual(restored, frame);
+  assert.deepEqual([...normalizeSnapshot(restored).coins], [[1, [0, 10]]]);
+  const buffer = new SnapshotBuffer({ delay: 0 });
+  buffer.push(restored);
+  assert.deepEqual(buffer.sample(0).get(1).coins, [0, 10]);
+  buffer.push(roundTrip({ t: 'b.snap', fieldId: 'f20', gt: 1, units: snap.units }, 's2c'));
+  assert.equal(buffer.sample(1).get(1).coins, null);
+});
 
 test('real match public/private views for 1–20 seats restore exactly, including parallel drafts', () => {
   for (let count = 1; count <= 20; count++) {

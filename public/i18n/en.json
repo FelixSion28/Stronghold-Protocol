@@ -1354,5 +1354,10 @@
   "{scale} 倍": "{scale} times",
   "时长倍率预选": "Duration presets",
   "阶段时长 {scale}×": "Phase duration {scale}×",
-  "休整、选策略与机变等阶段按倍率延长；战斗保持 2 倍速，回合开始、战斗结束与结算过渡时长固定。仅一名真人时休整与选择不限时。": "Preparation, strategy selection, and contingency phases are extended by this multiplier. Battles remain at 2× speed; round start, battle end, and settlement transitions have fixed durations. With only one human player, preparation and selection have no time limit."
+  "休整、选策略与机变等阶段按倍率延长；战斗保持 2 倍速，回合开始、战斗结束与结算过渡时长固定。仅一名真人时休整与选择不限时。": "Preparation, strategy selection, and contingency phases are extended by this multiplier. Battles remain at 2× speed; round start, battle end, and settlement transitions have fixed durations. With only one human player, preparation and selection have no time limit.",
+  "只能部署在召唤者相邻四格": "Can only be deployed on the four tiles adjacent to the summoner",
+  "{names}只能部署在召唤者相邻四格，已退回整备区": "{names} can only be deployed on the four tiles adjacent to the summoner and returned to the Bench",
+  "{names}只能部署在召唤者相邻四格，整备区已满，下回合返还": "{names} can only be deployed on the four tiles adjacent to the summoner; the Bench is full, so they come back next round",
+  "装备库存不足，未获得该装备": "Equipment stock is insufficient; no equipment was received",
+  "库存不足": "Out of stock"
 }

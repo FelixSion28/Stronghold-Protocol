@@ -213,7 +213,9 @@ test('real-time co-op over websockets with the real simulation: 2 humans + 2 AI 
     // client-side combat: no combat streaming; the own spec every round (authoritative), results reported
     assert.equal(c.log.filter((x) => x.t === 'b.snap' || x.t === 'b.ev').length, 0, 'no b.snap / b.ev');
     const starts = c.log.filter((x) => x.t === 'b.start');
-    const own = starts.filter((x) => x.fieldId === `n:${c.id}` && x.authoritative);
+    // The exercise ends at R4 preparation. A delayed peer may already receive an in-flight R4 spec.
+    // Only completed R1–R3 battles must have reported by this checkpoint.
+    const own = starts.filter((x) => x.fieldId === `n:${c.id}` && x.authoritative && x.spec.round < 4);
     assert.ok(own.length >= 3, `${c.id} got its own spec every round (${own.length})`);
     for (const st of own) {
       assert.equal(st.spec.kind, 'normal');

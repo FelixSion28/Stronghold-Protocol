@@ -198,8 +198,8 @@ test('a single available supply item remains six separate cards in each independ
   assert.deepEqual(pages[1].cards.map((c) => c.idx), [0, 1, 2, 3, 4, 5]);
 });
 
-test('no group is silently omitted when card data cannot generate any reward', () => {
+test('no invalid reward page is generated when all groups have no eligible cards', () => {
   const gd = forcedData('supply', 3);
   gd.shopItemsByTier = {};
-  assert.equal(generateGroupDrafts(gd, createRng(3), 3, GROUPS, OPTIONS), null);
+  assert.deepEqual(generateGroupDrafts(gd, createRng(3), 3, GROUPS, OPTIONS), []);
 });
