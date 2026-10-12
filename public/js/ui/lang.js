@@ -25,6 +25,7 @@ import { loadPref, savePref } from '../store.js';
 import { data } from '../data.js';
 import { updateRotateHintPwaI18n } from './device.js';
 import { html } from './components.js';
+import { genUrl } from '../gen.js';
 
 /** The switch's own label, in both languages (whoever opens it may not read the current one). */
 const SWITCH_LABEL = 'Language / 语言'; // i18n-ignore
@@ -42,7 +43,7 @@ let indexLoad = null;
 let indexOk = false;
 /** Only the latest boot or explicit selection may apply its loaded language. */
 let langRequest = 0;
-const INDEX_URL = `${PACKS_URL}${PACK_INDEX_FILE}`;
+const INDEX_URL = genUrl(`${PACKS_URL}${PACK_INDEX_FILE}`);
 
 const defaultFetch = (...a) => globalThis.fetch(...a);
 
@@ -79,7 +80,7 @@ export function loadLangIndex(doFetch = defaultFetch) {
 export function loadUiMessages(lang, doFetch = defaultFetch) {
   if (lang === DEFAULT_LANG) return Promise.resolve(true);
   if (uiLoads.has(lang)) return uiLoads.get(lang);
-  const url = langInfo(lang)?.ui || `/i18n/${lang}.json`;
+  const url = genUrl(langInfo(lang)?.ui || `/i18n/${lang}.json`);
   const p = (async () => {
     try {
       const res = await doFetch(url, { cache: 'no-cache' });
@@ -121,8 +122,14 @@ export async function loadLangChain(lang, doFetch = defaultFetch) {
 export const dataChain = (lang) => langChain(lang).filter((c) => langInfo(c)?.data !== false).map((c) => ({ code: c, url: langInfo(c)?.dataUrl }));
 
 /**
- * The language to start in: the URL's `?lang=`, then the stored choice, then Chinese. `tentative`: also a well-formed
- * code no pack is known for (boot without an index tries to load it).
+ * The language a first visit starts in (this fork's audience is English-speaking): English when its pack is listed
+ * (or, without an index, tried by its code), else the Chinese source.
+ */
+export const START_LANG = DEFAULT_LANG;
+
+/**
+ * The language to start in: the URL's `?lang=`, then the stored choice, then START_LANG, then Chinese. `tentative`:
+ * also a well-formed code no pack is known for (boot without an index tries to load it).
  * @param {string} [search] location.search
  * @param {(key: string, fallback: any) => any} [load]
  * @param {{ tentative?: boolean }} [opts]
@@ -135,7 +142,7 @@ export function initialLang(search = globalThis.location?.search || '', load = l
   if (fromUrl) return { lang: fromUrl, fromUrl: true };
   let stored = null;
   try { stored = pick(load(PREF_KEY, null)); } catch { /* ignore */ }
-  return { lang: stored || DEFAULT_LANG, fromUrl: false };
+  return { lang: stored || pick(START_LANG) || DEFAULT_LANG, fromUrl: false };
 }
 
 function stripLangParam() {
@@ -213,7 +220,8 @@ export async function initLang() {
   })();
   const got = await Promise.race([boot, new Promise((r) => setTimeout(() => r(TIMEOUT), BOOT_WAIT_MS))]);
   if (got === TIMEOUT) {
-    boot.then((lang) => { if (request === langRequest && lang && normalizeLang(loadPref(PREF_KEY, null)) === lang) applyLang(lang); });
+    // still the language to be in (no other pick in the meantime; a first visit has no stored one — START_LANG)
+    boot.then((lang) => { if (request === langRequest && lang && initialLang().lang === lang) applyLang(lang); });
   } else if (request === langRequest && got) applyLang(got);
   return getLang();
 }

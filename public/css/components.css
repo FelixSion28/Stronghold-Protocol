@@ -508,6 +508,7 @@
   white-space: pre-line;
 }
 .tooltip.is-shown { opacity: 1; }
+.tooltip--aside { max-width: 3.2rem; white-space: normal; }
 .tooltip--top.is-shown { animation: tip-up var(--t-fast) var(--ease-out); }
 .tooltip--bottom.is-shown { animation: tip-down var(--t-fast) var(--ease-out); }
 @keyframes tip-up { from { transform: translateY(4px); } }
@@ -865,6 +866,7 @@
 .ping--medium { --pc: var(--amber); }
 .ping--high { --pc: var(--red-premium); }
 .ping--off { --pc: var(--text-dim); }
+.online-pill .ping__unit { margin-left: .04rem; }
 
 /* ---- difficulty tag ---------------------------------------------------------------------------------- */
 .dtag { --d-color: var(--amber); display: inline-flex; align-items: center; gap: .06rem; color: var(--d-color); font-weight: 700; font-size: calc(.18 * var(--t)); letter-spacing: .04em; white-space: nowrap; }

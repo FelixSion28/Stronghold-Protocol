@@ -8,6 +8,7 @@ import { unitStatsEntry } from '../../../shared/protocol.js';
 import { PHASE, ERR, EMOTES, EMOTE_COOLDOWN_MS, GEO } from '../../../shared/constants.js';
 import { deriveSeed } from '../../sim/rng.js';
 import { OK, fail } from './common.js';
+import { setBondCall } from '../bondCall.js';
 import { onHumanEmote } from '../botEmotes.js';
 
 export class MatchIntents {
@@ -19,6 +20,8 @@ export class MatchIntents {
         if ((msg.setupRevision ?? 0) !== this.setupRevision) return fail(ERR.BAD_TARGET, 'setup changed; confirm the current revision');
         if (!ps.infoReady) { ps.infoReady = true; this.markPublic(); this.maybeEndInfo(); }
         return OK;
+      // the briefing's 核心盟约 call (server/match/bondCall.js)
+      case 'g.bondCall': return setBondCall(this, ps, msg.bondId ?? null);
       case 'g.rerollVote': return this.voteSetupReroll(ps, msg.voteId, msg.agree);
       case 'g.band': return this.pickBand(ps, msg.bandId, msg);
       case 'g.bandSkip': return this.skipBand(ps, msg);

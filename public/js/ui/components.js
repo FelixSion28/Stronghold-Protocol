@@ -71,6 +71,7 @@ export const ICONS = {
   info: { d: 'M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm-1 8v7h2v-7zm0-3v2h2V7z', eo: true },
   warn: { d: 'M12 2 1 21h22zm-1 7v6h2V9zm0 7.5v2h2v-2z', eo: true },
   play: { d: 'M7 4v16l13-8z' },
+  pause: { d: 'M6 4h4v16H6zm8 0h4v16h-4z' },
   mic: { d: 'M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21H8v2h8v-2h-3v-3.1A7 7 0 0 0 19 11z' },
   edit: { d: 'M3 17.2V21h3.8l11-11-3.8-3.8zM20.7 7.1a1 1 0 0 0 0-1.4l-2.4-2.4a1 1 0 0 0-1.4 0l-1.8 1.8 3.8 3.8z' },
   sword: { d: 'M20 3h1v4L10.4 17.6l1.4 1.4-1.4 1.4-2.1-2.1-3.5 3.5-1.4-1.4 3.5-3.5L4.8 14.8l1.4-1.4 1.4 1.4L18 4z' },
@@ -536,24 +537,27 @@ export function DialogHost() {
 
 // ---- Tooltip -----------------------------------------------------------------------------------
 
-let tipState = null; // { id, content, rect, placement }
+let tipState = null; // { id, content, aside, rect, placement }
 let tipSeq = 0;
 const tipListeners = new Set();
 const setTip = (s) => { tipState = s; for (const fn of [...tipListeners]) fn(); };
 
 /**
  * Hover/focus tooltip around its children. Content renders in <TooltipLayer/> (fixed, viewport-clamped).
- * @param {{ text: any, placement?: 'top'|'bottom', delay?: number, block?: boolean, class?: string, children?: any }} props
+ * `aside`: an optional second box in the same style, beside the tooltip (right of it; left when there is no room).
+ * @param {{ text: any, aside?: any, placement?: 'top'|'bottom', delay?: number, block?: boolean, class?: string, children?: any }} props
  */
 const TOUCH_TIP_MS = 450;
 
-export function Tooltip({ text, placement = 'top', delay = 120, block = false, class: cls, children }) {
+export function Tooltip({ text, aside = null, placement = 'top', delay = 120, block = false, class: cls, children }) {
   const ref = useRef(null);
   const idRef = useRef(0);
   const timer = useRef(null);
   const textRef = useRef(text);
+  const asideRef = useRef(aside);
   const pressed = useRef(false); // pointer pressed inside: the focus that follows is not a keyboard focus
   textRef.current = text;
+  asideRef.current = aside;
   if (!idRef.current) idRef.current = ++tipSeq;
   const show = () => {
     clearTimeout(timer.current);
@@ -562,7 +566,7 @@ export function Tooltip({ text, placement = 'top', delay = 120, block = false, c
       const el = ref.current;
       const content = textRef.current; // the text of the render current when the delay ends (a click may change it)
       if (!el || !el.isConnected || content == null || content === '') return;
-      setTip({ id: idRef.current, content, rect: el.getBoundingClientRect(), placement });
+      setTip({ id: idRef.current, content, aside: asideRef.current, rect: el.getBoundingClientRect(), placement });
     }, delay);
   };
   const hide = () => {
@@ -598,7 +602,7 @@ export function Tooltip({ text, placement = 'top', delay = 120, block = false, c
   useEffect(() => {
     if (tipState?.id !== idRef.current) return;
     if (text == null || text === '') setTip(null);
-    else setTip({ ...tipState, content: text });
+    else setTip({ ...tipState, content: text, aside: asideRef.current });
   }, [text]);
   return html`<span ref=${ref} class=${cx('tt-anchor', block && 'tt-anchor--block', cls)}
       onMouseEnter=${onMouseEnter} onMouseLeave=${onLeave} onFocusIn=${onFocusIn} onFocusOut=${onLeave} onPointerDown=${onPointerDown}
@@ -611,6 +615,7 @@ export function Tooltip({ text, placement = 'top', delay = 120, block = false, c
 export function TooltipLayer() {
   const [, force] = useReducer((c) => c + 1, 0);
   const boxRef = useRef(null);
+  const asideRef = useRef(null);
   const [pos, setPos] = useState(null);
   useEffect(() => {
     tipListeners.add(force);
@@ -630,13 +635,31 @@ export function TooltipLayer() {
     if (place === 'bottom' && top + b.height > vh - m) { place = 'top'; top = Math.max(m, r.top - b.height - m); }
     let left = r.left + r.width / 2 - b.width / 2;
     left = Math.max(m, Math.min(vw - b.width - m, left));
-    const next = { top: Math.round(top), left: Math.round(left), place, id: tipState.id };
-    if (!pos || pos.top !== next.top || pos.left !== next.left || pos.id !== next.id || pos.place !== next.place) setPos(next);
+    // the aside: right of the box (left when it does not fit), growing away from the anchor (bottom-aligned above it,
+    // top-aligned below it), kept in the viewport
+    let aTop = null, aLeft = null;
+    const a = asideRef.current?.getBoundingClientRect();
+    if (a) {
+      const gap = 4;
+      aLeft = left + b.width + gap;
+      if (aLeft + a.width > vw - m) aLeft = left - gap - a.width;
+      aLeft = Math.max(m, Math.min(vw - a.width - m, aLeft));
+      aTop = place === 'top' ? top + b.height - a.height : top;
+      aTop = Math.max(m, Math.min(vh - a.height - m, aTop));
+    }
+    const next = { top: Math.round(top), left: Math.round(left), place, id: tipState.id,
+      aTop: aTop == null ? null : Math.round(aTop), aLeft: aLeft == null ? null : Math.round(aLeft) };
+    if (!pos || pos.top !== next.top || pos.left !== next.left || pos.id !== next.id || pos.place !== next.place
+      || pos.aTop !== next.aTop || pos.aLeft !== next.aLeft) setPos(next);
   });
   if (!tipState) return null;
   const ready = pos && pos.id === tipState.id;
+  const hasAside = tipState.aside != null && tipState.aside !== '';
+  const off = 'top:-9999px;left:-9999px';
   return html`<div ref=${boxRef} class=${cx('tooltip', ready && 'is-shown', ready && `tooltip--${pos.place}`)} role="tooltip"
-    style=${ready ? `top:${pos.top}px;left:${pos.left}px` : 'top:-9999px;left:-9999px'}>${tipState.content}</div>`;
+    style=${ready ? `top:${pos.top}px;left:${pos.left}px` : off}>${tipState.content}</div>
+    ${hasAside ? html`<div ref=${asideRef} class=${cx('tooltip', 'tooltip--aside', ready && pos.aTop != null && 'is-shown', ready && `tooltip--${pos.place}`)}
+      role="tooltip" style=${ready && pos.aTop != null ? `top:${pos.aTop}px;left:${pos.aLeft}px` : off}>${tipState.aside}</div>` : null}`;
 }
 
 // ---- ProgressBar, Tabs, Spinner ----------------------------------------------------------------

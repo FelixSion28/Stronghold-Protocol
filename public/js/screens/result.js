@@ -23,6 +23,7 @@ import { data } from '../data.js';
 import { enemyIconUrl, titleIconUrl, uiUrl } from '../ui/assetUrls.js';
 import { store, useStore, emptyMatch } from '../store.js';
 import { audio } from '../audio.js';
+import { useDamageLog, DamageSummary } from '../ui/damageChart.js';
 import { sentText } from '../ui/lang.js';
 import { t, tParts, N_ } from '../../../shared/i18n.js';
 
@@ -55,11 +56,12 @@ export function resultBonds(bonds, bondRec = () => null) {
  * One unit of a final lineup: a 自选 piece draws its operator; a 补位 piece (`standInFor`) its stand-in, with the small
  * 「替补」 mark — the title names the chess it fielded for.
  */
-export function LineupThumb({ u, gd }) {
+export function LineupThumb({ u, gd, ownerId = null }) {
   const chess = u.kind === 'token' ? null : gd.chess(u.id);
   const dr = u.diy && chess ? diyRecordFor(chess, u.diy, { chess: data.get('chess'), backups: data.get('backups') }) : null;
   const si = !dr && chess ? cardStandIn(chess, { unit: u, backups: gd.backups }) : null;
-  return html`<${UnitThumb} kind=${u.kind === 'token' ? 'token' : 'chess'} id=${u.id} golden=${!!u.golden} tier=${u.tier} size="sm" rec=${dr || si}
+  // (fork, docs/OUTFITS.md) `ownerId`: the player of the lineup — their operators wear their outfits
+  return html`<${UnitThumb} kind=${u.kind === 'token' ? 'token' : 'chess'} id=${u.id} golden=${!!u.golden} tier=${u.tier} size="sm" rec=${dr || si} outfitOwner=${ownerId}
     title=${si ? t('{name}（{note}）', { name: si.name, note: standInForText(chess.name) }) : undefined} />`;
 }
 
@@ -82,7 +84,7 @@ function PlayerCard({ p, myId, titles, best, solo = false }) {
       </div>
       <div class="rcard__mid">
         <div class="rcard__lineup">
-          ${lineup.length ? lineup.map((u, i) => html`<${LineupThumb} key=${i} u=${u} gd=${gd} />`)
+          ${lineup.length ? lineup.map((u, i) => html`<${LineupThumb} key=${i} u=${u} gd=${gd} ownerId=${p.playerId} />`)
             : html`<span class="rcard__noinfo">${p.alive === false ? t('阵容已撤离') : 'NO INFO'}</span>`}
         </div>
         ${bonds.length ? html`<div class="rcard__bonds">${bonds.map((b) => html`<span key=${b.bondId} class=${cx('rbond', b.active && 'is-on')} title=${gd.bond(b.bondId)?.name || b.bondId}>
@@ -109,16 +111,19 @@ export function ResultScreen() {
   const pub = useStore((s) => s.match.public);
   const myId = useStore((s) => s.me.playerId);
   const hasRoom = useStore((s) => !!s.room);
+  // the local player's damage per operator over the match (ui/damageLog.js: this client only, not in a stored match)
+  const dmg = useDamageLog();
   const back = () => store.set({ match: emptyMatch() });
-  return html`<${ResultView} res=${res} pub=${pub} myId=${myId} backLabel=${hasRoom ? t('返回同盟') : t('返回大厅')} onBack=${back} />`;
+  return html`<${ResultView} res=${res} pub=${pub} myId=${myId} backLabel=${hasRoom ? t('返回同盟') : t('返回大厅')} onBack=${back} damage=${dmg.history} />`;
 }
 
 /**
  * The settlement view of one m.result payload — the live screen above, and the stats page's re-view of a stored match
- * (screens/stats.js, which hands it the payload recordToResult rebuilt; `quiet`: no settlement jingle).
- * @param {{ res: any, pub?: any, myId?: string|null, backLabel: string, onBack: () => void, quiet?: boolean }} props
+ * (screens/stats.js, which hands it the payload recordToResult rebuilt; `quiet`: no settlement jingle). `damage`: the
+ * live match's damage history (ui/damageLog.js), drawn under the player cards.
+ * @param {{ res: any, pub?: any, myId?: string|null, backLabel: string, onBack: () => void, quiet?: boolean, damage?: any }} props
  */
-export function ResultView({ res, pub = null, myId = null, backLabel, onBack, quiet = false }) {
+export function ResultView({ res, pub = null, myId = null, backLabel, onBack, quiet = false, damage = null }) {
   const gd = useGameData();
   const r = normalizeResult(res, pub);
   const titles = Array.isArray(gd.config?.titles) ? gd.config.titles : [];
@@ -168,6 +173,7 @@ export function ResultView({ res, pub = null, myId = null, backLabel, onBack, qu
         <h2 class="brief-h"><span>${t('同盟成员')}</span><${MicroLabel}>ALLIANCE REPORT</${MicroLabel}></h2>
         ${r.players.length ? r.players.map((p) => html`<${PlayerCard} key=${p.playerId} p=${p} myId=${myId} titles=${titles} best=${best} solo=${r.players.length < 2} />`)
           : html`<p class="t-dim">${t('暂无结算数据')}</p>`}
+        ${damage ? html`<${DamageSummary} history=${damage} />` : null}
       </section>
     </main>
   </div>`;

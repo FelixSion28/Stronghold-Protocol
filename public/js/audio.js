@@ -5,6 +5,8 @@
 //   bossBgm { [bossId]: { intro?, loop } },
 //   voice { [charId]: { start, faceEnemy, select, place, skill1…skill4, squad, squadFirst, result*, gacha } },
 //   voiceJp { [charId]: { …the same slots } } (the Japanese dub, settings 语音语言 日本語; see voiceLine),
+//   voiceEn / voiceKr / voiceNative { [charId]: { …the same slots } } (the picker's dubs, VOICE_TREES),
+//   voiceNativeLangType { [charId]: 'ITA' | 'RUS' | … } (the official voiceLangType of the own-language dub, its square's label),
 //   sfx.ui { click, buy, sell, refresh, freeze, levelup, merge, equip, ready, timer, yourTurn, … },
 //   sfx.battle { deploy, tokenDeploy, charDie, tokenDie?, enemyDie, enemyHit, heal, killCoin, … },
 //   sfx.units { [charId|tokenId|enemyId]: { attack?, hit?, skill?, die?, born?, mix?: { [role]: { p?, vol? } } } }.
@@ -28,7 +30,9 @@
 //   channel over — the official scheduling of `audio_data.json battleVoice.voiceTypeOptions` (a tap's 选中 line skips
 //   the gap: VOICE_TAP_SLOTS). Two dubs: 中文 `audio.voice` (default) and 日本語 `audio.voiceJp` (settings 语音语言, not
 //   tied to the interface language; the owner's request of 2026-10-08 「全套的日配语音」) — a JP line the manifest or the
-//   host lacks falls back to the Chinese one (voiceLine).
+//   host lacks falls back to the Chinese one (voiceLine). This fork adds English / 한국어 to the setting (`audio.voiceEn`
+//   / `audio.voiceKr`, trees like `audio.voiceJp`) and a per-operator pick (ui/voiceLang.js → setVoicePicks: CN / JP /
+//   EN / KR or the operator's own-language dub, `audio.voiceNative`), all through voiceLine (VOICE_TREES).
 // - Battle SFX from `b.ev` tuples (`handleBattleEvents`): at most MAX_VOICES concurrent unit sounds, at most
 //   MAX_PER_URL overlapping copies of one sound (the official banks' maxSoundAllowed 2), a per-unit cooldown and a
 //   per-URL minimum gap (SfxLimiter), so a 60-unit fight stays listenable. A `['skill', id, 1]` that arrives before its
@@ -65,7 +69,6 @@
 // `bgmKeyFor(route, pub)` picks the track for the current screen/phase (main.js calls `audio.install()`,
 // which follows the store).
 
-import { sanitizeVoiceOverrides, voiceLangFor } from './voicePrefs.js';
 import { PHASE } from '../../shared/constants.js';
 import { mediaUrl } from './media.js';
 
@@ -310,10 +313,13 @@ export const VOICE_TAP_SLOTS = Object.freeze(['select']);
  * slot when the JP tree lacks it (a file the fetch could not get is left out of the manifest), and per line at play time
  * — `fallback` is the Chinese file of the same name, played when the host does not have the JP one (a full zip built
  * without the JP dub, before setup downloaded it). A slot with several lines draws one (`random` ∈ [0, 1)).
+ * The per-operator picker's dubs (ui/voiceLang.js) are trees of the same kind (VOICE_TREES): 'en' `audio.voiceEn`, 'kr'
+ * `audio.voiceKr` and 'native' `audio.voiceNative` (the operator's own-language dub) — the same slots and file names,
+ * the same two fallbacks.
  * @param {any} audio the manifest's `audio`
  * @param {string} charId
  * @param {string} slot
- * @param {'cn'|'jp'|string} [lang]
+ * @param {'cn'|'jp'|'en'|'kr'|'native'|string} [lang]
  * @param {() => number} [random]
  * @returns {{ url: string, fallback: string|null } | null}
  */
@@ -321,13 +327,42 @@ export function voiceLine(audio, charId, slot, lang = 'cn', random = Math.random
   const lines = (line) => (Array.isArray(line) ? line : [line]).filter((u) => typeof u === 'string' && u);
   const draw = (list) => (list.length ? list[Math.min(list.length - 1, Math.floor(random() * list.length))] : null);
   const cn = lines(audio?.voice?.[charId]?.[slot]);
-  const jp = lang === 'jp' ? draw(lines(audio?.voiceJp?.[charId]?.[slot])) : null;
-  if (jp) {
+  const tree = VOICE_TREES[lang];
+  const dub = tree ? draw(lines(audio?.[tree]?.[charId]?.[slot])) : null;
+  if (dub) {
     const file = (u) => u.slice(u.lastIndexOf('/') + 1);
-    return { url: jp, fallback: cn.find((u) => file(u) === file(jp)) ?? draw(cn) };
+    return { url: dub, fallback: cn.find((u) => file(u) === file(dub)) ?? draw(cn) };
   }
   const url = draw(cn);
   return url ? { url, fallback: null } : null;
+}
+
+/**
+ * The manifest tree of each dub besides `audio.voice` (中文): master's `audio.voiceJp` and, in the same shape, the
+ * per-operator picker's `audio.voiceEn` / `audio.voiceKr` / `audio.voiceNative` (tools/assets/plan.mjs VOICE_TREE_LANGS).
+ */
+export const VOICE_TREES = Object.freeze({ jp: 'voiceJp', en: 'voiceEn', kr: 'voiceKr', native: 'voiceNative' });
+
+// ---- outfit voices (fork, docs/OUTFITS.md) -------------------------------------------------------------------
+// An outfit with its own voice set (data/outfits.json `voice`) has it in the voice trees under its word key
+// ('char_4064_mlynar_epoque#28'). The operator's language pick still applies (it is the operator's), and the dub falls
+// back like any line (EN → JP → 中文; an outfit not dubbed in EN yet speaks JP). A slot the set lacks is the operator's.
+
+let voiceKeyResolver = null;
+/** Set the function that names a unit's outfit voice key ((unitInfo | { charId, ownerId }) => key | null; ui/outfits.js). */
+export function setOutfitVoiceResolver(fn) { voiceKeyResolver = typeof fn === 'function' ? fn : null; }
+/** The outfit voice key of a tracked unit / an operator, or null. */
+export function outfitVoiceKey(u) {
+  try { return (voiceKeyResolver && voiceKeyResolver(u)) || null; } catch { return null; }
+}
+
+/** The line of `slot` in outfit voice set `key` (the operator's language pick, EN → JP → 中文), or null. */
+function outfitVoiceLine(am, charId, slot, key) {
+  if (typeof key !== 'string' || !key) return null;
+  const a = am.getManifest()?.audio;
+  if (!a?.voice?.[key]?.[slot]) return null;
+  const lang = effectiveVoiceLang(a, key, { default: am.voicePicks?.[charId] || am.voiceLang, native: false, byChar: {} });
+  return voiceLine(a, key, slot, lang || am.voiceLang);
 }
 
 /**
@@ -374,6 +409,42 @@ export function resultSpeaker(pp, random = Math.random, charOf = null) {
   if (!pool.length) return null;
   return pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))].id;
 }
+
+/** The picker's languages besides the own-language dub, in button order (tools/assets/audio.mjs VOICE_DIRS). */
+export const VOICE_LANGS = Object.freeze(['cn', 'jp', 'en', 'kr']);
+
+/**
+ * The languages operator `charId` has on this server: 中文 (`audio.voice`), then each dub tree (VOICE_TREES) that
+ * voices it, in button order, the own-language dub last. A manifest built with --no-optional-voice has 中文 and the JP
+ * tree only.
+ * @param {any} a manifest `audio`
+ * @param {string} charId
+ * @returns {string[]} e.g. ['cn', 'jp', 'en', 'kr', 'native']; [] when the operator has no voice at all
+ */
+export function voiceLangsOf(a, charId) {
+  if (!a?.voice?.[charId]) return [];
+  const has = (l) => l === 'cn' || Object.keys(a[VOICE_TREES[l]]?.[charId] || {}).length > 0;
+  return [...VOICE_LANGS, 'native'].filter(has);
+}
+
+/** The default voice language, then the fallback for an operator without its dub (unreleased-on-global ones have JP). */
+export const VOICE_FALLBACK = Object.freeze(['en', 'jp']);
+
+/**
+ * The language `charId` speaks: its own pick, else its own-language dub when the settings ask for it (`native`), else the
+ * default of the settings, else EN, else JP (VOICE_FALLBACK), else the base dub (the first language it has — CN). A pick
+ * it lacks falls back the same way.
+ * @param {any} a manifest `audio`
+ * @param {string} charId
+ * @param {{ default?: string, native?: boolean, byChar?: Record<string, string> } | null | undefined} pref
+ */
+export function effectiveVoiceLang(a, charId, pref) {
+  const has = voiceLangsOf(a, charId);
+  if (!has.length) return null;
+  for (const l of [pref?.byChar?.[charId], pref?.native && 'native', pref?.default, ...VOICE_FALLBACK]) if (l && has.includes(l)) return l;
+  return has[0];
+}
+
 
 /** Concurrency + cooldown gate for battle SFX. Pure (time is passed in). */
 /** Gestures that may unlock audio: iOS Safari only accepts touchend / click / keydown; pointerdown covers the rest. */
@@ -525,8 +596,9 @@ export class AudioManager {
     this.voiceGate = new VoiceGate();
     this.voiceNode = null;    // { src, gain, url, token } of the line on air
     this.voiceToken = 0;
-    this.voiceOverrides = {};
     this.voiceLang = 'cn';    // settings 语音语言: 'cn' (audio.voice) | 'jp' (audio.voiceJp, falling back to audio.voice)
+    this.voiceNative = false; // settings 本土语言: an operator with an own-language dub speaks it; setVoiceNative
+    this.voicePicks = {};     // charId → its own dub (ui/voiceLang.js, the per-operator picker); setVoicePicks
     this.startVoiceDone = false; // 行动出发 of this field (the first operator deployed says it)
     this.uiVoices = 0;
     this.wantBgm = null;      // desired key (kept while locked)
@@ -669,13 +741,36 @@ export class AudioManager {
   }
 
   /**
-   * The voice dub (settings 语音语言): 'jp' plays `audio.voiceJp`, anything else `audio.voice` (中文, the default). The
-   * line on air finishes in its own dub; the next one follows the setting.
+   * The voice dub (settings 语音语言): 'jp' plays `audio.voiceJp`, 'en' / 'kr' the picker's other dumps (voiceLine),
+   * anything else `audio.voice` (中文, the default). The line on air finishes in its own dub; the next one follows the
+   * setting. An operator's own pick (setVoicePicks) wins over it.
    * @param {string} lang
    */
-  setVoiceLang(lang, overrides = this.voiceOverrides) {
-    this.voiceLang = lang === 'jp' ? 'jp' : 'cn';
-    this.voiceOverrides = sanitizeVoiceOverrides(overrides);
+  setVoiceLang(lang) {
+    this.voiceLang = VOICE_LANGS.includes(lang) ? lang : 'cn';
+  }
+
+  /**
+   * The settings' 本土语言 switch: every operator with an own-language dub (`audio.voiceNative`) speaks it instead of
+   * the settings' dub; an operator's own pick still wins.
+   * @param {boolean} on
+   */
+  setVoiceNative(on) {
+    this.voiceNative = on === true;
+  }
+
+  /**
+   * The per-operator picks (ui/voiceLang.js, the squares of 干员调配 and the 自选 picker): charId → cn | jp | en | kr |
+   * native. An operator without a pick speaks the settings' dub (setVoiceLang).
+   * @param {Record<string, string> | null} picks
+   */
+  setVoicePicks(picks) {
+    this.voicePicks = picks && typeof picks === 'object' ? { ...picks } : {};
+  }
+
+  /** The dub `charId` speaks now: its own pick, else its own-language dub (setVoiceNative), else the settings' one, else EN, else JP (effectiveVoiceLang). */
+  voiceLangOf(charId) {
+    return effectiveVoiceLang(this.getManifest()?.audio, charId, { default: this.voiceLang, native: this.voiceNative, byChar: this.voicePicks });
   }
 
   _applyVolumes() {
@@ -929,8 +1024,10 @@ export class AudioManager {
     try {
       if (!this.ctx || !this.voiceGain || this.volumes.muted || this.volumes.voice <= 0) return false;
       if (typeof charId !== 'string' || typeof slot !== 'string') return false;
-      // the chosen dub's line (settings 语音语言), with the Chinese file of the same name as its fallback (voiceLine)
-      const line = voiceLine(this.getManifest()?.audio, charId, slot, voiceLangFor(charId, this.voiceLang, this.voiceOverrides));
+      // the dub the operator speaks (its own pick, else settings 语音语言), with the Chinese file of the same name as its
+      // fallback (voiceLine)
+      // (fork) the outfit's own voice set: a battle unit's (o.voiceKey, null = none), else the player's own choice
+      const line = outfitVoiceLine(this, charId, slot, o.voiceKey !== undefined ? o.voiceKey : outfitVoiceKey({ charId })) || voiceLine(this.getManifest()?.audio, charId, slot, this.voiceLangOf(charId) || this.voiceLang);
       if (!line) return false;
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const verdict = this.voiceGate.request(slot, o.unitKey ?? null, now);
@@ -941,6 +1038,29 @@ export class AudioManager {
       this._playVoice(line.url, token, o.volume, line.fallback);
       return true;
     } catch (err) { this._warn('voice', err); return false; }
+  }
+
+  /**
+   * 试听 (the voice picker): one line of `charId` in `lang`, outside a battle — the loadout and the 自选 picker are
+   * no battle, so it skips VoiceGate's cooldowns and takes the channel over from whatever is on air.
+   * @param {string} charId
+   * @param {string} [lang] cn | jp | en | kr | native (default: the language the operator speaks now)
+   * @returns {boolean} whether a line exists and started
+   */
+  previewVoice(charId, lang) {
+    try {
+      if (!this.ctx || !this.voiceGain || this.volumes.muted || this.volumes.voice <= 0) return false;
+      const slots = this.getManifest()?.audio?.voice?.[charId];
+      if (!slots || typeof slots !== 'object') return false;
+      const slot = ['select', 'place', 'start'].find((s) => slots[s]) || Object.keys(slots)[0];
+      const line = voiceLine(this.getManifest()?.audio, charId, slot, lang || this.voiceLangOf(charId) || this.voiceLang);
+      if (!line) return false;
+      this._stopVoice();
+      this.voiceGate.start(slot, null, typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const token = ++this.voiceToken;
+      this._playVoice(line.url, token, 1, line.fallback);
+      return true;
+    } catch (err) { this._warn('voice-preview', err); return false; }
   }
 
   /**
@@ -1029,7 +1149,9 @@ export class AudioManager {
     if (!u || typeof u !== 'object' || u.id == null) return;
     // UnitInfo.spine is the model id (charId / tokenId / enemyId) — the key of sfx.units; kind/defId pick the
     // official class sounds (operator vs summon vs device). `skillActive` follows the ['skill', id, 1] / 0 events.
+    // (fork, docs/OUTFITS.md) `voiceKey`: the voice set of the outfit its owner chose (null = the operator's own)
     this.units.set(u.id, { def: u.spine || u.defId, defId: u.defId ?? null, kind: u.kind ?? null, side: u.side, boss: !!u.boss,
+      voiceKey: u.side === 'enemy' ? null : outfitVoiceKey(u),
       skillIndex: Number.isInteger(u.skillIndex) ? u.skillIndex : null, skillActive: !!u.skillActive });
     // a cast that arrived before this unit was known (handleBattleEvents): it sounds now, once
     const held = this.pendingSkill.get(u.id);
@@ -1081,7 +1203,7 @@ export class AudioManager {
             // 作战中N: the equipped skill's own slot (0-based; 作战中4 is the fallback of a 4th slot)
             if (unitSoundClass(u) === 'char') {
               const n = Number.isInteger(u.skillIndex) ? Math.min(4, u.skillIndex + 1) : 1;
-              this.voice(u.def, `skill${n}`, { unitKey: e[1] });
+              this.voice(u.def, `skill${n}`, { unitKey: e[1], voiceKey: u.voiceKey });
             }
           } else {
             // The unit is not tracked yet. The sim emits the cast of a deployment that fires inside its own first tick
@@ -1100,7 +1222,7 @@ export class AudioManager {
         } else if (kind === 'engage') {
           // 行动开始: the first attack a unit makes on an enemy (the sim's ENGAGE, official ENCOUNTER_ENEMY, 3 s apart)
           const u = this.units.get(e[1]);
-          if (u && unitSoundClass(u) === 'char') this.voice(u.def, 'faceEnemy', { unitKey: e[1] });
+          if (u && unitSoundClass(u) === 'char') this.voice(u.def, 'faceEnemy', { unitKey: e[1], voiceKey: u.voiceKey });
         } else if (kind === 'die') {
           const u = this.units.get(e[1]);
           if (!u) continue;
@@ -1133,8 +1255,8 @@ export class AudioManager {
           if (unitSoundClass(u) === 'char') {
             if (!this.startVoiceDone) {
               this.startVoiceDone = true;
-              if (!this.voice(u.def, 'start')) this.voice(u.def, 'place', { unitKey: e[1] });
-            } else this.voice(u.def, 'place', { unitKey: e[1] });
+              if (!this.voice(u.def, 'start', { voiceKey: u.voiceKey })) this.voice(u.def, 'place', { unitKey: e[1], voiceKey: u.voiceKey });
+            } else this.voice(u.def, 'place', { unitKey: e[1], voiceKey: u.voiceKey });
           }
           if (!url) continue;
           const own = url === m?.audio?.sfx?.units?.[u.def]?.born;
@@ -1165,13 +1287,13 @@ export const audio = new AudioManager({ getManifest: () => manifestGetter() });
 /**
  * Wire the singleton to the app (called once by main.js): manifest source, settings and store-driven BGM.
  * @param {{ getManifest: () => any, subscribe: (fn: (s:any, prev:any) => void) => () => void, getState: () => any,
- *   selectRoute: (s:any) => string, settings?: { bgm:number, sfx:number, voice:number, muted:boolean, voiceLang?:string } }} deps
+ *   selectRoute: (s:any) => string, settings?: { bgm:number, sfx:number, voice:number, muted:boolean, voiceLang?:string, voiceNative?:boolean } }} deps
  */
 export function installAudio(deps) {
   try {
     manifestGetter = typeof deps?.getManifest === 'function' ? deps.getManifest : manifestGetter;
     audio.install();
-    if (deps?.settings) { audio.setVolumes(deps.settings); audio.setVoiceLang(deps.settings.voiceLang, deps.settings.voiceOverrides); }
+    if (deps?.settings) { audio.setVolumes(deps.settings); audio.setVoiceLang(deps.settings.voiceLang); audio.setVoiceNative(deps.settings.voiceNative); }
     if (typeof deps?.subscribe === 'function' && typeof deps?.getState === 'function') {
       const sync = (s) => {
         try {

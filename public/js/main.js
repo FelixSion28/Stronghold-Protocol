@@ -55,16 +55,27 @@ import { LoadoutHost } from './screens/loadout.js';
 import { StatsHost } from './screens/stats.js';
 import { recordResult, installStatsRecorder } from './ui/stats.js';
 import { installLoadoutSync, installOwnershipSync, installDiySync } from './ui/loadoutSync.js';
+import { installOutfitSync } from './ui/outfits.js';
 import { startBuildGuard } from './ui/buildGuard.js';
 import { MAX_SEATS } from '../../shared/constants.js';
+import { installPresence } from './ui/presence.js';
+import { installSoloQueue } from './ui/soloQueue.js';
 import { initLang, useLang, tickerText } from './ui/lang.js';
 import { t, N_, translateWire } from '../../shared/i18n.js';
 import { recordError } from './diag.js';
+import { GEN, genUrl, goHome, RETIRED_FLAG } from './gen.js';
 
 const RESTORE_GRACE_MS = 1500;
 const JOIN_DELAY_MS = 350;
 const TICKER_KEEP = 20;
 const EMOTE_KEEP = MAX_SEATS * 4; // keep several seconds of messages even when every seat sends together
+const NOTICE_TOAST_MS = 15000;
+/** sys.notice ids already shown on this page */
+const seenNotices = new Set();
+/** ui/buildGuard.js — set in boot(); sys.retire hands it the move to the new generation */
+let buildGuard = null;
+/** sys.retire before the guard started (a fast first hello): handed over once it does */
+let retirePending = false;
 
 const SCREENS = { title: TitleScreen, lobby: LobbyScreen, room: RoomScreen, game: GameScreen };
 
@@ -205,6 +216,8 @@ const CLOSE_REASON = {
   // 'timeout' = this player was removed after staying disconnected past the lobby grace (server/lobby.js)
   host_left: N_('创建者已离开，同盟已解散'), timeout: N_('由于长时间断开连接，你已离开同盟'), empty: N_('同盟已解散'),
   kicked: N_('你已被移出同盟'), ended: N_('模拟已结束'), expired: N_('同盟已过期'), shutdown: N_('服务器维护中，同盟已关闭'),
+  // a spectator left behind by a 搜寻队友 merge (no spectator seat free in the target room)
+  merged: N_('同盟已与其他同盟合并，观战席已满'),
 };
 
 function wireNet() {
@@ -225,6 +238,18 @@ function wireNet() {
   });
   net.on('replaced', () => toast(t('该身份已在其他页面登录，本页已断开'), 'warn', { ttl: 6000 }));
   net.on('unhandledError', (err) => toastError(err));
+  // operator notice (server/announce.js): once per page, since the server resends it after every hello; shown as
+  // written, not translated. No expiry check: the server only sends active ones and the device clock may be off.
+  net.on('sys.notice', (msg) => {
+    if (typeof msg.text !== 'string' || !Number.isFinite(msg.id) || seenNotices.has(msg.id)) return;
+    seenNotices.add(msg.id);
+    toast(msg.text, 'warn', { ttl: NOTICE_TOAST_MS });
+  });
+  // a newer server generation took over (server/generation.js): leave for it as soon as no match is on screen
+  net.on('sys.retire', () => {
+    if (!GEN) return; // only a page served under a generation prefix can move
+    if (buildGuard) buildGuard.retire(); else retirePending = true;
+  });
   net.on('room.state', onRoomState);
   net.on('room.closed', (msg) => {
     backToLobby();
@@ -370,9 +395,12 @@ async function boot() {
   installUrgentAnnouncements({ net });
   installAssetCache();
   installStatsRecorder(store); // follows the match on screen, so a 放弃模拟 can be recorded (ui/stats.js)
+  installPresence();
+  installSoloQueue();
   installLoadoutSync({ net });
   installOwnershipSync({ net });
   installDiySync({ net });
+  installOutfitSync({ net }); // (fork, docs/OUTFITS.md) room.outfits
   net.attachBrowserHooks();
   // Audio: unlock on first gesture, BGM follows the route / match phase (js/audio.js).
   installAudio({ getManifest: () => data.get('assets'), subscribe: store.subscribe, getState: store.get, selectRoute, settings: settingsStore.get() });
@@ -398,18 +426,36 @@ async function boot() {
     setTimeout(() => splash.remove(), 300);
   }
   globalThis.__SP__ = { store, net, data, version: 1 };
+  // Settings ▸ Preload assets: a preload that is on resumes a few seconds after the first screen (resources/index.js)
+  // AssetCacheHost owns preload and the single asset service worker (D016).
   // A page keeps the modules it imported at load time for its whole lifetime, so a deploy cannot reach an open tab
   // (ui/buildGuard.js): watch `/healthz.build`. Outside a match the page reloads itself; during a match the guard says
   // so instead (the connection banner offers 刷新页面) and reloads once the match — settlement screen included — is over,
   // so a running game is never thrown away.
   try {
-    startBuildGuard({
+    buildGuard = startBuildGuard({
+      healthUrl: genUrl('/healthz'),
+      home: () => goHome(),
       inMatch: () => selectRoute(store.get()) === 'game',
       onStale: ({ waiting }) => { if (waiting) store.patch('ui', { buildStale: true }); },
     });
+    // a pending reload / move happens the moment the match (settlement screen included) leaves the screen
+    let route = selectRoute(store.get());
+    store.subscribe(() => {
+      const next = selectRoute(store.get());
+      if (next !== route) { route = next; buildGuard?.settle(); }
+    });
+    if (retirePending) buildGuard.retire();
   } catch (err) {
     console.warn('[app] build guard failed to start', err);
   }
+  // the page was moved here from a retired generation (gen.js goHome)
+  try {
+    if (sessionStorage.getItem(RETIRED_FLAG)) {
+      sessionStorage.removeItem(RETIRED_FLAG);
+      toast(t('服务器已更新到新版本'), 'info'); // en: "The server was updated to a new version."
+    }
+  } catch { /* private mode */ }
 }
 
 boot().catch((err) => {

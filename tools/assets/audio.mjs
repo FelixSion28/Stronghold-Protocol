@@ -366,6 +366,31 @@ export function resolveSpec(spec, bank) {
 
 /** Voice dump folder per language (under sound_beta_2). */
 export const VOICE_DIRS = Object.freeze({ cn: 'voice_cn', jp: 'voice', en: 'voice_en', kr: 'voice_kr' });
+/** Folder of the operators' own-language dubs (意大利语 / 俄文 / 西班牙语 / 中文-方言 …) under sound_beta_2. */
+export const VOICE_CUSTOM_DIR = 'voice_custom';
+
+/**
+ * The own-language dub of each operator that has one: charword `voiceLangDict` entries whose language is of
+ * `groupType` CUSTOM in `voiceLangTypeDict` (collab voices, LINKAGE, are not). The dub's folder under
+ * VOICE_CUSTOM_DIR is its word key in lower case (`char_102_texas_ITA` → `char_102_texas_ita`; some dubs, e.g.
+ * char_196_sunbr's 俄文, keep the base word key), holding the same `cn_nnn.mp3` file names as the base dubs.
+ * @param {any} charword parsed excel/charword_table.json
+ * @returns {Map<string, {dir:string, type:string}>} charId → its folder under VOICE_CUSTOM_DIR and the official
+ *   voiceLangType (ITA / GER / RUS / FRE / SPA / CN_TOPOLECT …); the first CUSTOM dub when there are several
+ */
+export function nativeVoiceDirs(charword) {
+  const types = charword?.voiceLangTypeDict;
+  const out = new Map();
+  if (!types || typeof types !== 'object') return out;
+  for (const [charId, rec] of Object.entries(charword?.voiceLangDict || {})) {
+    for (const [type, e] of Object.entries(rec?.dict || {})) {
+      if (types[type]?.groupType !== 'CUSTOM' || out.has(charId)) continue;
+      const wk = typeof e?.wordkey === 'string' ? e.wordkey : '';
+      if (/^[a-z0-9_]+$/i.test(wk)) out.set(charId, { dir: wk.toLowerCase(), type });
+    }
+  }
+  return out;
+}
 
 /** Official `placeType` → the manifest's voice slot (public/js/audio.js VOICE_PRIORITY / VOICE_COOLDOWN_MS). */
 export const VOICE_SLOTS = Object.freeze({
@@ -407,15 +432,19 @@ export const VOICE_PREP_SLOTS = Object.freeze(['gacha', 'squad', 'squadFirst']);
 
 /**
  * Index charword_table.json into per-character voice slots, in voiceIndex order (one slot may have several lines).
- * Only the base word key (`wordKey === charId`) is used: the dump has no folder for a skin variant's word key
- * (`char_x_ita`, `char_x_epoque#28`, …) — those files simply do not exist upstream.
+ * By default only the base word key (`wordKey === charId`) is used. An outfit's own voice set has its own word key
+ * (`char_4064_mlynar_epoque#28`): the dump does have those folders (`voice_cn/char_4064_mlynar_epoque%2328/`, verified
+ * 2026-10-11 — the '#' must be URL-encoded), and `wordKeys` (fork, docs/OUTFITS.md: data/outfits.json `voice`) indexes
+ * them under the word key instead of the charId.
  * @param {any} charword parsed excel/charword_table.json
  * @param {string} [lang] voiceId prefix — the zh_CN table carries the `CN_*` lines; the other dubs share the numbering
  * @param {Iterable<string>|null} [only] slot names to keep; null/omitted keeps every slot (VOICE_BATTLE_SLOTS is what
  *   the plan uses by default, so a battle's own lines are planned and the prep-only ones are not)
- * @returns {Map<string, Record<string, string[]>>} charId → slot → voiceAsset ('char_263_skadi/CN_023')
+ * @param {Iterable<string>} [wordKeys] outfit word keys to index too (each under its own key)
+ * @returns {Map<string, Record<string, string[]>>} charId (or outfit word key) → slot → voiceAsset ('char_263_skadi/CN_023')
  */
-export function indexVoice(charword, lang = 'CN', only = null) {
+export function indexVoice(charword, lang = 'CN', only = null, wordKeys = []) {
+  const extra = new Set(wordKeys || []);
   const keep = only ? new Set(only) : null;
   const out = new Map();
   const words = charword?.charWords;
@@ -424,7 +453,8 @@ export function indexVoice(charword, lang = 'CN', only = null) {
   const seen = new Map();
   for (const e of Object.values(words)) {
     if (!e || typeof e !== 'object') continue;
-    const charId = e.charId, slot = VOICE_SLOTS[e.placeType], vid = e.voiceId;
+    const slot = VOICE_SLOTS[e.placeType], vid = e.voiceId;
+    const charId = extra.has(e.wordKey) ? e.wordKey : e.charId;
     if (!charId || !slot || (keep && !keep.has(slot)) || typeof vid !== 'string' || !vid.startsWith(`${lang}_`)) continue;
     if (e.wordKey !== charId) continue;
     if (typeof e.voiceAsset !== 'string' || !e.voiceAsset) continue;

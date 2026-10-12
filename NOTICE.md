@@ -15,6 +15,9 @@ Copyright (C) 2026 Stronghold-Protocol contributors
 
 **英文翻译致谢**：界面英文文本 `public/i18n/en.json` 与游戏文本的补充译文 `tools/i18n/fallback-pr70.json` 以 GitHub PR #70（分支 `en-translation`）中 **@YuriRestia** 的翻译为基础，经项目所有者决定（2026-10-05）署名沿用，随本项目一同以 GPL-3.0-or-later 发布；PR #70 中取自 ak-spa-database.pages.dev（未声明许可）的文本未被采用。英文游戏文本 `data/i18n/en.json` 本身是官方英文服数据（见第 2 节）。
 
+**资源预载致谢 / Asset preload credit**：「设置 ▸ 预载资源」（`public/resource-sw.js`、`public/js/resources/`、`shared/resources.js`、`server/resources.js`）基于 [xinhai-ai/Stronghold-Protocol](https://github.com/xinhai-ai/Stronghold-Protocol) 的资源预载模块（`public/resource-sw.js`、`public/js/resources/`、`server/resources.js`，GPL-3.0-or-later），版权归其贡献者，随本项目一同以 GPL-3.0-or-later 发布。
+The asset preload (Settings ▸ Preload Assets) is based on the preloader of xinhai-ai/Stronghold-Protocol (GPL-3.0-or-later); copyright its contributors, distributed under the same license.
+
 **附加许可（GPL-3.0 第 7 条）** — Additional permission under GNU GPL version 3 section 7:
 
 > If you modify this Program, or any covered work, by linking or combining it with the Spine Runtimes (as shipped in
@@ -68,3 +71,8 @@ purposes only: no selling, paid distribution, paid hosting, ads, donations or an
 can request removal through a GitHub issue and the content will be taken down. No warranty of any kind.
 The English UI strings were seeded from GitHub PR #70 by @YuriRestia (credited, released with the project under
 GPL-3.0-or-later); the English game texts (`data/i18n/en.json`) are official EN client data like `data/*.json`.
+The English names, skills, talents and modules of the operators the EN client does not have yet (可露希尔, 予愿安洁莉娜,
+凯尔希·思衡托, 机械师, 维伊, 谬因, 珊比, 克莱门莎; in `tools/i18n/fallback-pr70.json`) follow the wording of arknights.wiki.gg
+(https://arknights.wiki.gg/wiki/Operator/List#CN_Operators, CC BY-SA 4.0), with the remake's numbers. The wiki has no
+English for the CN-only modules 好时节 (Shu, GUA-Y) and “前路” (Ulpianus, CRU-Y), or for the GUA-Y upgrade of Shu's
+天有四时 talent; those are this fork's own wording until the EN client adds them.

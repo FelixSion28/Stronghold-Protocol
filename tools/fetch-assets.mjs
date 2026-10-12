@@ -67,7 +67,7 @@ import { MirrorPolicy, selectDownloadSource, validateSource } from './assets/net
 import { normalizeProxyPrefix } from './assets/sources.mjs';
 import { loadIndexes } from './assets/cache.mjs';
 import { indexAudio, VOICE_DIRS } from './assets/audio.mjs';
-import { buildPlan } from './assets/plan.mjs';
+import { buildPlan, VOICE_OPTIONAL_TREES } from './assets/plan.mjs';
 import {
   processModels, findLocalEnemyModels, findLocalTokenModels, localSpineMeta, loadLocalSpines, LOCAL_ENEMY_SPINES_FILE,
   LOCAL_TOKEN_SPINES_FILE, LOCAL_ENEMY_SPINE_DIR, LOCAL_TOKEN_SPINE_DIR,
@@ -75,6 +75,7 @@ import {
 import { collectLeaves, downloadLeaves, resolveTemplate, totalBytes, contentHash, droppedEntries, MANIFEST_VERSION } from './assets/manifest.mjs';
 import { fontJobs, buildFonts } from './assets/fonts.mjs';
 import { skelParserAvailable } from './assets/skel.mjs';
+import { outfitRoster } from '../shared/outfits.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const ASSETS = join(ROOT, 'public', 'assets');
@@ -110,6 +111,9 @@ const HELP = `Usage: node tools/fetch-assets.mjs [options]
                     (audio.voiceJp, the 日本語 setting, is always the JP dub: both trees are planned)
   --voice-all       plan every official voice slot, including the prep-only lines no battle plays
                     (干员报到 / 编入队伍 / 任命队长; 360 files / 19.3 MB more per run — off by default)
+  --no-optional-voice
+                    only the --voice-lang dub and audio.voiceJp: skip the per-operator voice picker's
+                    trees (audio.voiceEn, audio.voiceKr, audio.voiceNative)
   --prune           delete files under public/assets that the manifest no longer references
                     (public/assets/local/** of tools/local-extract is never deleted); implies --allow-shrink
   --allow-shrink    write data/assets.json even when it loses entries the current one has
@@ -142,10 +146,10 @@ function envFlag(value) {
 /**
  * Parse CLI flags.
  * @param {string[]} argv
- * @returns {{concurrency:number, force:boolean, offline:boolean, dryRun:boolean, refreshIndex:boolean, prune:boolean, allowShrink:boolean, strict:boolean, addOnly:boolean, localSpines:boolean, voiceLang:string, voiceAll:boolean, help:boolean, source:string}}
+ * @returns {{concurrency:number, force:boolean, offline:boolean, dryRun:boolean, refreshIndex:boolean, prune:boolean, allowShrink:boolean, strict:boolean, addOnly:boolean, localSpines:boolean, voiceLang:string, voiceAll:boolean, optionalVoice:boolean, help:boolean, source:string}}
  */
 export function parseArgs(argv) {
-  const o = { concurrency: 16, force: false, offline: false, dryRun: false, refreshIndex: false, prune: false, allowShrink: false, strict: envFlag(process.env.SP_ASSETS_STRICT), addOnly: false, localSpines: false, voiceLang: 'cn', voiceAll: false, help: false, source: process.env.SP_ASSET_SOURCE || 'direct' };
+  const o = { concurrency: 16, force: false, offline: false, dryRun: false, refreshIndex: false, prune: false, allowShrink: false, strict: envFlag(process.env.SP_ASSETS_STRICT), addOnly: false, localSpines: false, voiceLang: 'cn', voiceAll: false, optionalVoice: true, help: false, source: process.env.SP_ASSET_SOURCE || 'direct' };
   for (const a of argv) {
     const [k, v] = a.split('=');
     if (k === '--concurrency') o.concurrency = Math.max(1, Math.min(64, parseInt(v, 10) || 16));
@@ -161,6 +165,7 @@ export function parseArgs(argv) {
     else if (k === '--local-spines') o.localSpines = true;
     else if (k === '--voice-lang') { if (!VOICE_DIRS[v]) throw new Error(`unknown --voice-lang ${v} (cn | jp | en | kr)`); o.voiceLang = v; }
     else if (k === '--voice-all') o.voiceAll = true;
+    else if (k === '--no-optional-voice') o.optionalVoice = false;
     else if (k === '--help' || k === '-h') o.help = true;
     else throw new Error(`unknown option ${a}\n${HELP}`);
   }
@@ -301,6 +306,29 @@ function tidyManifest(m) {
     for (const [sid, iconId] of Object.entries(m.skillsById)) if (!m.skills?.[iconId]) delete m.skillsById[sid];
   }
   for (const c of Object.values(m.chars || {})) if (c.spine && !Object.keys(c.spine).length) delete c.spine;
+  // (fork) an outfit or summon look none of whose art landed is no entry (the client then draws the default look)
+  for (const group of ['chars', 'tokens']) {
+    const g = m.outfits?.[group] || {};
+    for (const [id, o] of Object.entries(g)) {
+      if (o.spine && !Object.keys(o.spine).length) delete o.spine;
+      if (!o.spine && !o.avatar && !o.portrait && !o.art) delete g[id];
+    }
+  }
+}
+
+/**
+ * The voice picker's trees (plan.mjs VOICE_OPTIONAL_TREES), resolved against the disk: a tree with no line on disk is
+ * dropped, and `audio.voiceNativeLangType` keeps only the operators whose own-language dub landed (its square's label).
+ * @param {any} m resolved manifest body (mutated)
+ */
+export function tidyVoiceTrees(m) {
+  const a = m?.audio;
+  if (!a || typeof a !== 'object') return;
+  for (const key of Object.keys(VOICE_OPTIONAL_TREES)) if (a[key] && !Object.keys(a[key]).length) delete a[key];
+  if (a.voiceNativeLangType) {
+    for (const id of Object.keys(a.voiceNativeLangType)) if (!a.voiceNative?.[id]) delete a.voiceNativeLangType[id];
+    if (!Object.keys(a.voiceNativeLangType).length) delete a.voiceNativeLangType;
+  }
 }
 
 function countStats(m, bytes, files) {
@@ -328,6 +356,9 @@ function countStats(m, bytes, files) {
     sfxUnits: Object.keys(m.audio?.sfx?.units || {}).length,
     voiceChars: Object.keys(m.audio?.voice || {}).length,
     voiceJpChars: Object.keys(m.audio?.voiceJp || {}).length,
+    voiceEnChars: Object.keys(m.audio?.voiceEn || {}).length,
+    voiceKrChars: Object.keys(m.audio?.voiceKr || {}).length,
+    voiceNativeChars: Object.keys(m.audio?.voiceNative || {}).length,
   };
 }
 
@@ -395,8 +426,8 @@ async function main() {
   const audio = indexAudio(audioData);
   // The game data built by tools/build-data.mjs (when present) may reference more
   // spawnable enemies/tokens than research lists (e.g. 机变 enemy swaps): cover them too.
-  const [dataEnemies, dataTokens, dataBosses, dataBackups, dataChess] = await Promise.all(
-    ['data/enemies.json', 'data/tokens.json', 'data/bosses.json', 'data/backups.json', 'data/chess.json'].map((f) => readJson(f).catch(() => null)));
+  const [dataEnemies, dataTokens, dataBosses, dataBackups, dataChess, dataOutfits] = await Promise.all(
+    ['data/enemies.json', 'data/tokens.json', 'data/bosses.json', 'data/backups.json', 'data/chess.json', 'data/outfits.json'].map((f) => readJson(f).catch(() => null)));
   const extras = dataExtras(dataBackups, dataChess);
   const extraHandbook = {};
   for (const b of Object.values(dataBosses || {})) if (b?.enemyKey && typeof b.handbookId === 'string') extraHandbook[b.enemyKey] = b.handbookId;
@@ -406,6 +437,7 @@ async function main() {
     assets07, ops03, enemies05, maps05, audio, modelsData, charword, voiceLang: opts.voiceLang,
     // default: only the slots a battle can play (plan.mjs VOICE_BATTLE_SLOTS); --voice-all takes the whole official set
     voiceSlots: opts.voiceAll ? null : undefined,
+    optionalVoice: opts.optionalVoice,
     extraEnemyIds: Object.keys(dataEnemies || {}),
     extraTokenIds: [...Object.keys(dataTokens || {}), ...extras.tokenIds],
     extraHandbook,
@@ -413,6 +445,10 @@ async function main() {
     localTokenSpines,
     extraOperators: extras.extraOperators,
     moduleTypes: extras.moduleTypes,
+    // fork (docs/OUTFITS.md): the outfits of tools/build-outfits.mjs, and the operators (roster + 自选编队) whose default
+    // artwork the picker shows
+    outfits: dataOutfits,
+    outfitChars: outfitRoster(dataChess, dataBackups),
   });
   const leaves = collectLeaves(plan.template);
   log(`[plan] ${leaves.length} files + ${plan.models.size} Spine models ` +
@@ -460,6 +496,7 @@ async function main() {
   const resolved = resolveTemplate(plan.template, { root: ASSETS, spine: spine.entries, sourceOf: (rel) => dl.ledger.files[rel]?.url });
   const body = resolved.value;
   tidyManifest(body);
+  tidyVoiceTrees(body);
   const fontFaces = {};
   for (const [name, f] of Object.entries(fonts.files)) fontFaces[name] = f;
   body.fonts = opts.addOnly && current?.fonts ? current.fonts
@@ -514,7 +551,7 @@ async function main() {
   log(`bonds ${s.bonds} · items ${s.items} · bands ${s.bands} · skill icons ${s.skills} · UI ${s.ui} · units with SFX ${s.sfxUnits}`);
   const overlays = (o) => Object.values(o || {}).filter((e) => e?.spineLocal).length;
   log(`local-client models (spineLocal, drawn when extracted): enemies ${overlays(manifest.enemies)} · tokens ${overlays(manifest.tokens)}`);
-  log(`operator battle voice: ${s.voiceChars} charIds (--voice-lang=${opts.voiceLang}) · JP dub (audio.voiceJp): ${s.voiceJpChars} charIds`);
+  log(`operator battle voice: ${s.voiceChars} charIds (--voice-lang=${opts.voiceLang}) · JP dub (audio.voiceJp): ${s.voiceJpChars} charIds · EN ${s.voiceEnChars} · KR ${s.voiceKrChars} · own-language dub ${s.voiceNativeChars}`);
   log(`fonts: ${Object.values(fonts.files).map((f) => f.woff2 || f.original).join(', ') || 'none'}`);
   if (resolved.fallbacks.length) { log(`fallbacks used (${resolved.fallbacks.length}):`); for (const f of resolved.fallbacks.slice(0, 20)) log(`  ${f}`); }
   if (downloadErrors.length) log(`download errors (${downloadErrors.length}, re-run to retry): ${downloadErrors.slice(0, 10).join(', ')}`);

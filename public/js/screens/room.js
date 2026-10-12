@@ -10,6 +10,7 @@
 // Spectator seats (community report #26, a remake feature): a co-op room with spectators shows the 观战席 strip under
 // the seats — names, offline marks, the host's ✕ (room.removeSpectator) — and a spectator's own view swaps the ready
 // button for 观战中 and offers 入座 (room.join of the room) while a player seat is free.
+// 搜寻队友 (ui/matchSearch.js): the host's search strip above the bar and the searching status line.
 // Texts go through t() (docs/I18N.md).
 
 import { useEffect, useRef, useState } from '../../vendor/hooks.module.js';
@@ -25,9 +26,13 @@ import { openStats } from './stats.js';
 import { SettingsButton } from '../ui/settings.js';
 import { LoadoutButton } from './loadout.js';
 import { net } from '../net.js';
+import { audio } from '../audio.js';
 import { store, useStore, shallowEqual, emptyMatch, isSpectating } from '../store.js';
 import { difficultyInfo } from './lobby.js';
 import { t, tc } from '../../../shared/i18n.js';
+import { SearchBar, SearchButton, SearchStatus, useSearchNotice, useFindMates, canFindMates } from '../ui/matchSearch.js';
+import { OnlinePill } from '../ui/presence.js';
+import { publicPath } from '../gen.js';
 
 /**
  * Seats padded to the room's capacity (co-op 4–20, solo 1), each null or a seat record.
@@ -69,6 +74,8 @@ export function roomFacts(room, myId) {
   const aiLimitReached = maxAiPerRoom !== null && botCount >= maxAiPerRoom;
   const aiLimitExceeded = maxAiPerRoom !== null && botCount > maxAiPerRoom;
   const waiting = !room?.inMatch;
+  // server/matchmaker.js groupReady; unlike othersReady it reads the same for a guest (whose "others" include the host)
+  const groupReady = humans.every((s) => s.connected !== false && isReady(s));
   return {
     seats, occupied, humans, mine, isHost, readyHumans, isReady,
     emptySeats, botCount, maxAiPerRoom, aiLimitReached, aiLimitExceeded,
@@ -77,6 +84,7 @@ export function roomFacts(room, myId) {
       ? others.filter((s) => s.connected !== false && !s.left) : [],
     canStart: waiting && isHost && othersReady && !!mine && !aiLimitExceeded,
     othersReady,
+    groupReady,
     // spectator seats (never players: not in `humans`, never counted for ready / start)
     spectators: Array.isArray(room?.spectators) ? room.spectators.filter((s) => s && typeof s === 'object') : [],
     spectating: isSpectating(room, myId),
@@ -95,10 +103,10 @@ export function aiLastOption(room) {
   return { on: true, editable: false };
 }
 
-/** Invite link for a room code (current page URL with ?room=CODE). */
+/** Invite link for a room code (current page URL with ?room=CODE; without a generation prefix, public/js/gen.js). */
 export function inviteLink(code) {
   const loc = globalThis.location;
-  const base = loc ? `${loc.origin}${loc.pathname}` : '';
+  const base = loc ? `${loc.origin}${publicPath(loc.pathname)}` : '';
   return `${base}?room=${encodeURIComponent(code)}`;
 }
 
@@ -118,8 +126,8 @@ export function SeatCard({ seat, index, room, facts, myId, busy, onAddBot, onRem
       <header class="seat__head"><span class="seat__no num">P${index + 1}</span><${MicroLabel}>SEAT ${String(index + 1).padStart(2, '0')}<//></header>
       <div class="seat__art seat__art--empty">
         <div class="seat__radar" aria-hidden="true"></div>
-        <span class="seat__wait">${t('等待博士加入')}</span>
-        <${MicroLabel}>AWAITING DOCTOR<//>
+        <span class="seat__wait">${room.searching ? t('搜寻中') : t('等待博士加入')}</span>
+        <${MicroLabel}>${room.searching ? 'SEARCHING' : 'AWAITING DOCTOR'}<//>
       </div>
       <footer class="seat__foot">
         ${canAdd
@@ -267,6 +275,8 @@ export function RoomScreen() {
   const alive = useRef(true);
   const inFlight = useRef(false); // synchronous guard against double clicks (state updates are async)
   useEffect(() => () => { alive.current = false; }, []);
+  useSearchNotice(room, me.playerId);
+  const [findMates, setFindMates] = useFindMates();
 
   if (!room) return null;
   const online = conn.status === 'online';
@@ -286,7 +296,8 @@ export function RoomScreen() {
     }
   };
 
-  const toggleReady = () => run('ready', () => net.request('room.ready', { ready: !myReady }));
+  // the strategy draft's 确认选择 sound on ready (gameActions SUCCESS_SFX g.band), 'back' on cancel — as the HUD's g.ready
+  const toggleReady = () => run('ready', async () => { const on = !myReady; await net.request('room.ready', { ready: on }); audio.sfx(on ? 'confirm' : 'back'); });
   const start = () => run('start', () => net.request('room.start', {}));
   const addBot = () => run('add', () => net.request('room.addBot', {}));
   const removeBot = (seat, playerId) => run(`rm${seat}`, () => net.request('room.removeBot', { seat, playerId }));
@@ -334,6 +345,8 @@ export function RoomScreen() {
       ? html`<span class="t-lo"><${Icon} name="eye" />${t('观战中 · 不占博士席位，模拟开始后可切换观看各位博士')}</span>`
     : !coop
       ? html`<span class="t-mint">${t('*模拟协议已就绪，准许进入模拟')}</span>`
+    : room.searching
+      ? html`<${SearchStatus} room=${room} facts=${facts} />`
     : facts.isHost
       ? facts.canStart
         ? html`<span class="t-mint">${t('*同盟人数达标，准许进入模拟')}</span>`
@@ -350,7 +363,7 @@ export function RoomScreen() {
           <${Button} variant="danger" size="lg" square=${true} icon="exit" loading=${busy === 'leave'} onClick=${leave} aria-label=${t('离开同盟')} />
         <//>
         <div class="room-ping">
-          <${PingPill} ms=${conn.ping} online=${online} />
+          <span class="room-ping__pills"><${PingPill} ms=${conn.ping} online=${online} /><${OnlinePill} /></span>
           <${MicroLabel}>${t('当前延迟')}<//>
         </div>
         <${Button} variant="secondary" size="sm" icon="chart" class="stats-entry" onClick=${openStats} title=${t('统计数据')} aria-label=${t('统计数据')}>${t('统计')}<//>
@@ -382,6 +395,7 @@ export function RoomScreen() {
       </aside>`}
     </main>
     <${SpectatorBar} facts=${facts} myId=${me.playerId} busy=${busy} onRemove=${removeSpectator} onSit=${sit} />
+    <${SearchBar} room=${room} facts=${facts} findMates=${findMates} setFindMates=${setFindMates} />
 
     <footer class="room-bar">
       <div class="room-bar__left">
@@ -403,7 +417,9 @@ export function RoomScreen() {
       </div>
       <div class="room-bar__right">
         <${LoadoutButton} from="room" size="lg" class="room-loadout" label=${t('干员调配')} />
-        ${facts.isHost
+        ${facts.isHost && canFindMates(room, facts) && (findMates || room.searching)
+          ? html`<${SearchButton} room=${room} facts=${facts} busy=${busy} online=${online} run=${run} />`
+          : facts.isHost
           ? html`<${Tooltip} text=${facts.canStart ? null : t('仍有博士未准备就绪')}>
               <${Button} variant="primary" size="xl" icon="play" loading=${busy === 'start'} disabled=${!facts.canStart || !online} onClick=${start}>${t('开始模拟')}<//>
             <//>`

@@ -42,3 +42,4 @@ normative lines it rewrote).
 | §27 | [history/0.2.2.md](history/0.2.2.md) | 0.2.2 — after the 0.2.1 release (2026-10-09) |
 | §28 | [history/0.2.3.md](history/0.2.3.md) | 0.2.3 — after the 0.2.2 release (2026-10-10) |
 | §29 | [history/0.2.4.md](history/0.2.4.md) | 0.2.4 — after the 0.2.3 release (2026-10-11) |
+| §90 | [design/matchmaking.md](design/matchmaking.md) | Matchmaking by room merge (搜寻队友) — fork-only, numbered apart from upstream's sections |

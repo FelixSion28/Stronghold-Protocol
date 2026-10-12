@@ -19,10 +19,15 @@
 // Per-network limits for internet clients (see net.js clientAddress; local/LAN peers are exempt): open sockets
 // (maxConnectionsPerAddr, refused at upgrade with 429), rooms and running matches (lobby.js).
 //
+// Operator notices: announce.js watches logs/announce.json (option `noticeFile`, null disables). presence.js sends
+// the online count and the 搜寻队友 queue sizes (sys.online). Behind scripts/router.mjs (SP_GEN + SP_GEN_FILE, options
+// `gen` / `genFile`) generation.js retires this process once the router's generations.json names a newer one.
+//
 // Programmatic use (tests): `const srv = await startServer({ port: 0, quiet: true }); … await srv.close();`
 // The server only auto-listens when this file is the process entry point.
 
 import http from 'node:http';
+import path from 'node:path';
 import { getData, loadData } from './data.js';
 import { ROOT, listenAddress, bindCandidates, serveDirs, makeLogger, parseTrustProxy } from './http/config.js';
 import { WS_MAX_PAYLOAD, createSessionStack, attachWebSocket } from './http/websocket.js';
@@ -31,12 +36,17 @@ import { createPackRegistry } from './packs.js';
 import { createAnnouncementStore } from './announcements.js';
 import { createAnnouncementNoticeMonitor } from './announcementNotices.js';
 import { createServerSettings } from './serverSettings.js';
+import { createResourceManifest } from './resources.js';
 import { MIME, COMPRESSIBLE, acceptsGzip, parseRange } from './http/files.js';
 import { BUILD_INPUTS, computeBuildTag, buildTag, resetBuildTag } from './http/buildTag.js';
 import { createRequestHandler } from './http/routes.js';
 import { createAssetCacheHandler } from './http/assetCache.js';
 import { answerClientError } from './http/common.js';
 import { lanUrls, displayHost, isProcessEntry, runMain } from './http/boot.js';
+import { NoticeBoard } from './announce.js';
+import { Presence } from './presence.js';
+import { GenerationWatch } from './generation.js';
+import { GEN_ID_RE } from '../shared/gen.js';
 
 // The public API of this module (tests and tools import it from here); the code lives in ./http/.
 export {
@@ -56,12 +66,16 @@ export {
  *   maxConnectionsPerAddr?: number, maxRoomsPerAddr?: number, maxMatchesPerAddr?: number, resyncMinGapMs?: number,
  *   heavyPerSec?: number, heavyBurst?: number, trustProxy?: 'auto' | boolean, soloReconnectWindowMs?: number,
  *   assetCacheLimits?: { totalBps?: number, clientBps?: number, maxDownloads?: number, maxDownloadsPerClient?: number },
+ *   noticeFile?: string | null, noticePollMs?: number, presencePollMs?: number,
+ *   warmResources?: boolean, resourceHashCache?: string | null,
+ *   gen?: string | null, genFile?: string | null, genPollMs?: number,
  * }} [opts]
  * @returns {Promise<{ port: number, host: string, url: string, server: http.Server, wss: import('ws').WebSocketServer,
  *                     lobby: import('./lobby.js').Lobby, network: import('./net.js').Network,
  *                     registry: import('./net.js').SessionRegistry, packs: ReturnType<typeof createPackRegistry>,
  *                     announcements: ReturnType<typeof createAnnouncementStore>,
  *                     serverSettings: ReturnType<typeof createServerSettings>,
+ *                     notices: NoticeBoard | null, presence: Presence, generation: GenerationWatch | null,
  *                     close: () => Promise<void> }>}
  */
 export async function startServer(opts = {}) {
@@ -80,14 +94,38 @@ export async function startServer(opts = {}) {
   // content packs (docs/PACKS.md): scanned now — the start log names them — and again whenever their folders change
   const packs = createPackRegistry({ publicDir, dataDir, packsDir }, { log });
   packs.refresh(true);
-  const serveStatic = createStaticHandler({ publicDir, dataDir, sharedDir, packsDir, packs, runtimeCache: opts.runtimeCache, log });
+  // asset preload file list (server/resources.js): hashed in the background now, so the first player does not wait
+  const resources = createResourceManifest({ publicDir, log,
+    hashCacheFile: opts.resourceHashCache === undefined ? path.join(ROOT, 'node_modules', '.cache', 'sp-resource-hashes.json') : opts.resourceHashCache });
+  if (opts.warmResources) resources.warm(); // the real server (below); tests build it only when they ask for it
+  const serveStatic = createStaticHandler({ publicDir, dataDir, sharedDir, packsDir, packs, resources, runtimeCache: opts.runtimeCache, log });
   const assetCache = createAssetCacheHandler({ publicDir, dataDir, log, limits: opts.assetCacheLimits, trustProxy: opts.trustProxy });
   const startedAt = Date.now();
   // The tag is per process (see buildTag): read the browser runtime once, here, not on every /healthz.
   resetBuildTag();
   buildTag();
+  const noticeFile = opts.noticeFile === undefined ? path.join(ROOT, 'logs', 'announce.json') : opts.noticeFile;
+  const notices = noticeFile ? new NoticeBoard({ file: noticeFile, registry, startedAt, pollMs: opts.noticePollMs, log }) : null;
+  if (notices) {
+    const lobbyHello = lobby.onHello.bind(lobby);
+    lobby.onHello = (session, info) => {
+      try { lobbyHello(session, info); } finally { notices.onHello(session); }
+    };
+  }
+  const presence = new Presence({ network, lobby, pollMs: opts.presencePollMs });
+  // behind scripts/router.mjs: this process is one generation (server/generation.js); both set, or neither
+  const gen = opts.gen === undefined ? process.env.SP_GEN || null : opts.gen;
+  const genFile = opts.genFile === undefined ? process.env.SP_GEN_FILE || null : opts.genFile;
+  if (gen && !GEN_ID_RE.test(gen)) throw new Error(`SP_GEN ${JSON.stringify(gen)} is not a generation id`);
+  const generation = gen && genFile ? new GenerationWatch({ gen, file: genFile, registry, lobby, pollMs: opts.genPollMs, log }) : null;
+  if (generation) {
+    const helloBefore = lobby.onHello.bind(lobby);
+    lobby.onHello = (session, info) => {
+      try { helloBefore(session, info); } finally { generation.onHello(session); }
+    };
+  }
 
-  const server = http.createServer(createRequestHandler({ serveStatic, announcements, assetCache, health: { startedAt, network, registry, lobby }, log }));
+  const server = http.createServer(createRequestHandler({ serveStatic, announcements, assetCache, health: { startedAt, network, registry, lobby, generation }, log }));
   server.on('clientError', answerClientError);
   const wss = attachWebSocket(server, { network, log });
   // Prime before accepting connections; only commands submitted to a running server are broadcast.
@@ -131,6 +169,9 @@ export async function startServer(opts = {}) {
     throw e;
   }
   server.on('error', (e) => log.error('[http] server error', e));
+  notices?.start();
+  presence.start();
+  generation?.start();
 
   const addr = server.address();
   const actualPort = typeof addr === 'object' && addr ? addr.port : port;
@@ -144,6 +185,9 @@ export async function startServer(opts = {}) {
       assetCache.close();
       announcementNotices.close();
       try { lobby.shutdown('shutdown'); } catch (e) { log.error('[shutdown] lobby', e); }
+      notices?.stop();
+      presence.stop();
+      generation?.stop();
       network.close();
       await new Promise((resolve) => {
         server.close(() => resolve());
@@ -155,8 +199,8 @@ export async function startServer(opts = {}) {
     return closing;
   }
 
-  return { port: actualPort, host: boundHost, url, server, wss, lobby, network, registry, packs, announcements, serverSettings, close };
+  return { port: actualPort, host: boundHost, url, server, wss, lobby, network, registry, packs, announcements, serverSettings, notices, presence, generation, close };
 }
 
 // `node server/index.js` / npm start: listen, print the banner, stop on SIGINT / SIGTERM (http/boot.js).
-if (isProcessEntry(import.meta.url)) runMain(startServer);
+if (isProcessEntry(import.meta.url)) runMain(() => startServer({ warmResources: true }));

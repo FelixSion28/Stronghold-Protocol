@@ -23,7 +23,7 @@
 
 import { RAW, joinUrl, safeName, urlBase, urlDir } from './sources.mjs';
 import { kindOf } from './formats.mjs';
-import { pickUnitSfx, pickModeAttacks, pickModeHits, skillModeLetter, SLOT_MODE_LETTER, UI_SFX, BATTLE_SFX, resolveSpec, indexVoice, VOICE_DIRS, VOICE_BATTLE_SLOTS } from './audio.mjs';
+import { pickUnitSfx, pickModeAttacks, pickModeHits, skillModeLetter, SLOT_MODE_LETTER, UI_SFX, BATTLE_SFX, resolveSpec, indexVoice, nativeVoiceDirs, VOICE_DIRS, VOICE_CUSTOM_DIR, VOICE_BATTLE_SLOTS } from './audio.mjs';
 import { literal } from './manifest.mjs';
 import { EMOTE_CATALOG } from '../../shared/constants.js';
 
@@ -41,6 +41,14 @@ const VOICE_ID_LANG = 'CN';
  * request of 2026-10-08 「全套的日配语音」: the JP dub of every line the game plays, beside the Chinese one.
  */
 export const VOICE_JP_LANG = 'jp';
+
+/**
+ * The per-operator voice picker's trees beside `audio.voiceJp` (`optionalVoice`, on by default in fetch-assets.mjs): the EN
+ * and KR dumps (`voice_en/`, `voice_kr/`) and each operator's own-language dub (`voice_custom/<wordkey>/`, audio.mjs
+ * nativeVoiceDirs) — the same slots and file names, under `audio/voice/<en|kr|native/<dir>>/`. public/js/audio.js
+ * VOICE_TREES plays them; tools/package.mjs FULL_ZIP_OPTIONAL_VOICE decides whether the full zip ships them.
+ */
+export const VOICE_OPTIONAL_TREES = Object.freeze({ voiceEn: 'en', voiceKr: 'kr', voiceNative: 'native' });
 
 /**
  * Enemies whose Spine no community dump carries: the web model is another enemy's (research 07 §5.6). Their official
@@ -145,12 +153,82 @@ function leaf(...alts) {
   return list.length ? { alts: list } : null;
 }
 
-/** One operator voice line: charword voiceAsset ('char_263_skadi/CN_023') → `audio/voice/<lang>/<charId>/cn_023.mp3`. */
+/**
+ * One operator voice line: charword voiceAsset ('char_263_skadi/CN_023') → `audio/voice/<lang>/<charId>/cn_023.mp3`.
+ * An outfit's own voice set (fork, docs/OUTFITS.md) has its wordKey as folder ('char_4064_mlynar_epoque#28/CN_001'): the
+ * dump's folder keeps the '#' (URL-encoded), the local one is safeName'd ('…_epoque_28').
+ */
 function voiceAlt(asset, lang) {
   const [charId, voiceId] = String(asset).split('/');
-  if (!charId || !voiceId || !/^[a-z0-9_]+$/i.test(charId) || !/^[a-z]{2}_\d+$/i.test(voiceId)) return null;
-  const file = `${charId}/${voiceId.toLowerCase()}.mp3`;
-  return alt(`audio/voice/${lang}/${file}`, joinUrl(RAW.aa2voice, `${VOICE_DIRS[lang]}/${file}`));
+  if (!charId || !voiceId || !/^[a-z0-9_]+(?:#\d+)?$/i.test(charId) || !/^[a-z]{2}_\d+$/i.test(voiceId)) return null;
+  const name = `${voiceId.toLowerCase()}.mp3`;
+  return alt(`audio/voice/${lang}/${safeName(charId)}/${name}`, joinUrl(RAW.aa2voice, `${VOICE_DIRS[lang]}/${charId}/${name}`));
+}
+
+/** The same line from an operator's own-language dub (audio.mjs nativeVoiceDirs) → `audio/voice/native/<dir>/cn_023.mp3`. */
+function nativeVoiceAlt(asset, dir) {
+  const voiceId = String(asset).split('/')[1];
+  if (!dir || !/^[a-z0-9_]+$/.test(dir) || !voiceId || !/^[a-z]{2}_\d+$/i.test(voiceId)) return null;
+  const file = `${dir}/${voiceId.toLowerCase()}.mp3`;
+  return alt(`audio/voice/native/${file}`, joinUrl(RAW.aa2voice, `${VOICE_CUSTOM_DIR}/${file}`));
+}
+
+/**
+ * Full artwork (yuanyan `skin/<portraitId>b.png`, ~3 MB) → `outfit/art/<name>.webp`, converted at download time
+ * (downloader.mjs convertImage: ≤ 1024 px, ~150 KB). `ids` = candidate portrait ids, best first (one file).
+ */
+function artAlt(name, ids) {
+  const urls = ids.map((id) => joinUrl(RAW.yuanyan, `skin/${id}b.png`));
+  return { ...alt(`outfit/art/${safeName(name)}.webp`, urls), from: 'png' };
+}
+
+/**
+ * The manifest's `outfits` (fork, docs/OUTFITS.md): `chars[skinId]` = { avatar, portrait, art, spine: { front, back? } }
+ * of each outfit of data/outfits.json, `tokens[tokenSkinId]` = { avatar, spine } of each summon look an outfit gives,
+ * `defaults[charId]` = { art } — the roster operator's own artwork (E2, else E1), what the picker's 默认 card shows.
+ * Files under `outfit/` (shared/resources.js: the optional `outfits` preload pack). A model's layout comes from
+ * data/outfits.json (`layout`): only a model known to have a Back folder plans one, so a front-only outfit costs no
+ * 404 per run (the client draws its Front model facing away too); a 'single' model (`Spine/`) is front and back alike.
+ */
+function planOutfits({ outfits, outfitChars, chars, skillIdxOf, fexliModel, notes }) {
+  const out = { chars: {}, tokens: {}, defaults: {} };
+  if (!outfits || typeof outfits !== 'object') return out;
+  const enc = encodeURIComponent;
+  const fexliRec = (owner, model, folders) => {
+    const dir = model.replace(/#/g, '_');
+    const bases = folders.map((f) => `${RAW.fexli}spine/${enc(owner)}/${enc(dir)}/${f}/${enc(dir)}`);
+    return { skel: bases.map((b) => b + '.skel'), atlas: bases.map((b) => b + '.atlas'), png: bases.map((b) => b + '.png') };
+  };
+  for (const r of Object.values(outfits)) {
+    if (!r || typeof r.id !== 'string' || typeof r.charId !== 'string' || typeof r.model !== 'string') continue;
+    if (!chars[r.charId]) { notes.push(`outfit ${r.id}: ${r.charId} is not planned, skipped`); continue; }
+    const name = safeName(r.id);
+    const idx = skillIdxOf.get(r.charId) || [0];
+    const dir = `outfit/spine/${name}/`;
+    const layout = r.layout;
+    const front = fexliModel(`op:${r.charId}:${name}:front`, 'op', `${dir}front/`,
+      fexliRec(r.charId, r.model, layout === 'single' ? ['Spine'] : layout ? ['Front'] : ['Front', 'Spine']), idx);
+    const back = layout === 'fb' ? fexliModel(`op:${r.charId}:${name}:back`, 'op', `${dir}back/`, fexliRec(r.charId, r.model, ['Back']), idx) : null;
+    out.chars[r.id] = {
+      avatar: leaf(alt(`outfit/avatar/${safeName(r.avatar)}.png`, joinUrl(RAW.yuanyan, `avatar/${r.avatar}.png`))),
+      portrait: leaf(alt(`outfit/portrait/${safeName(r.portrait)}.png`, joinUrl(RAW.yuanyan, `portrait/${r.portrait}.png`))),
+      art: leaf(artAlt(r.portrait, [r.portrait])),
+      spine: { ...(front ? { front } : {}), ...(back ? { back } : {}) },
+    };
+    for (const [tokenId, skin] of Object.entries(r.tokens || {})) {
+      if (out.tokens[skin] || typeof skin !== 'string') continue;
+      const tName = safeName(skin);
+      out.tokens[skin] = {
+        token: literal(tokenId),
+        avatar: leaf(alt(`outfit/avatar/${tName}.png`, joinUrl(RAW.yuanyan, `avatar/${skin}.png`))),
+        spine: fexliModel(`token:${tokenId}:${tName}`, 'token', `outfit/spine/${tName}/`, fexliRec(tokenId, skin, ['Spine', 'Front']), [0]),
+      };
+    }
+  }
+  for (const id of [...new Set(outfitChars || [])].sort()) {
+    if (chars[id]) out.defaults[id] = { art: leaf(artAlt(`${id}_default`, [`${id}_2`, `${id}_1`])) };
+  }
+  return out;
 }
 
 /** Sound path under sound_beta_2 → alternative under public/assets/audio/<sub>. */
@@ -307,6 +385,8 @@ export function collectEnemyIds({ assets07, enemies05, maps05, ops03 }) {
  * @param {string} [p.voiceLang] voice dump of `audio.voice` (the 中文 setting): cn (default) | jp | en | kr — `audio.voiceJp`
  *   is the JP dub (`voice/`) whatever it is
  * @param {boolean} [p.voiceJp] plan the JP tree `audio.voiceJp` (default true)
+ * @param {boolean} [p.optionalVoice] also plan the per-operator voice picker's trees (VOICE_OPTIONAL_TREES: `audio.voiceEn` /
+ *   `audio.voiceKr` / `audio.voiceNative`, plus `audio.voiceNativeLangType`); default false
  * @param {Iterable<string>|null} [p.voiceSlots] which voice slots to plan: VOICE_BATTLE_SLOTS (default) plans only the
  *   lines a battle can play, null plans every slot of audio.mjs VOICE_SLOTS (`--voice-all`). The prep-only slots
  *   (干员报到 / 编入队伍 / 任命队长) are never requested by the client and cost 360 files / 19.3 MB of downloads.
@@ -324,12 +404,16 @@ export function collectEnemyIds({ assets07, enemies05, maps05, ops03 }) {
  *   operators from patternOperator
  * @param {string[]} [p.moduleTypes] module type icon ids (`typeIcon`, e.g. 'sol-x') → manifest `modules[typeIcon]`, the
  *   official type icon (arts/ui/uniequiptype) the 干员调配 / 自选 module tiles draw when the local-client art lacks it
+ * @param {Record<string, any>|null} [p.outfits] data/outfits.json (fork, docs/OUTFITS.md) → manifest `outfits`: each
+ *   outfit's avatar, portrait, artwork (WebP) and battle model, its summons' looks, every roster operator's default
+ *   artwork, and the outfits' own voice sets in the voice trees (keyed by their word key)
+ * @param {string[]} [p.outfitChars] the roster's charIds (data/chess.json): whose default artwork the outfit picker shows
  * @returns {{ template: any, models: Map<string, any>, notes: string[] }}
  */
 export function buildPlan({ assets07, ops03, enemies05, maps05, audio, modelsData, charword = null, voiceLang = 'cn',
-  voiceJp = true, voiceSlots = VOICE_BATTLE_SLOTS,
+  voiceJp = true, voiceSlots = VOICE_BATTLE_SLOTS, optionalVoice = false,
   extraEnemyIds = [], extraTokenIds = [], extraHandbook = {}, localEnemySpines = {}, localTokenSpines = {}, extraOperators = {},
-  moduleTypes = [] }) {
+  moduleTypes = [], outfits = null, outfitChars = [] }) {
   const notes = [];
   /** @type {Map<string, any>} */
   const models = new Map();
@@ -363,12 +447,14 @@ export function buildPlan({ assets07, ops03, enemies05, maps05, audio, modelsDat
   for (const [id, x] of Object.entries(extraOperators || {})) if (/^char_\d+_[a-z0-9]+$/i.test(id) && !known[id]) extraOps[id] = patternOperator(id, x);
   const operators = { ...known, ...extraOps };
   const charIds = Object.keys(operators).sort();
+  const skillIdxOf = new Map(); // charId → the skill indices its models resolve (an outfit's model resolves the same)
   for (const id of charIds) {
     const o = operators[id];
     // DESIGN §16 operator loadouts: any skill of the character can be equipped — the icons, skill SFX and Spine skill
     // clips of every skill index (the pool's primary index first, as before)
     const idx0 = skillIdx.get(id) || [0];
     const idx = [...idx0, ...(o.skills || []).map((k) => k.index).filter((i) => Number.isInteger(i) && i >= 0 && !idx0.includes(i)).sort((a, b) => a - b)];
+    skillIdxOf.set(id, idx);
     const c = {};
     c.avatar = leaf(alt(`char/avatar/${id}.png`, o.avatar?.e0e1?.url, o.avatar?.e0e1?.bytes));
     if (o.avatar?.e2?.url) c.avatarE2 = leaf(alt(`char/avatar/${id}_2.png`, o.avatar.e2.url, o.avatar.e2.bytes));
@@ -472,6 +558,9 @@ export function buildPlan({ assets07, ops03, enemies05, maps05, audio, modelsDat
     if (mix) u.mix = mix;
     if (Object.keys(u).length) unitsSfx[id] = u;
   }
+
+  // --- outfits (fork, docs/OUTFITS.md) -------------------------------------
+  const outfitsTree = planOutfits({ outfits, outfitChars, chars, skillIdxOf, fexliModel, notes });
 
   // --- enemies -------------------------------------------------------------
   const handbookOf = new Map();
@@ -663,16 +752,21 @@ export function buildPlan({ assets07, ops03, enemies05, maps05, audio, modelsDat
   // the complete official set (`voiceSlots: null`, reviewer note on the voice PR).
   // `audio.voiceJp` (VOICE_JP_LANG): the same slots and lines in the Japanese dub, a second tree beside the Chinese one
   // (the owner's request of 2026-10-08) — same file names, `audio/voice/jp/`.
-  const voiceSlotsByChar = indexVoice(charword, VOICE_ID_LANG, voiceSlots);
-  const voiceTree = (lang) => {
+  // (fork, docs/OUTFITS.md) + each outfit's own voice set, under its word key (data/outfits.json `voice`)
+  const outfitVoices = new Set(Object.values(outfits || {}).filter((r) => typeof r?.voice === 'string' && chars[r.charId]).map((r) => r.voice));
+  const voiceSlotsByChar = indexVoice(charword, VOICE_ID_LANG, voiceSlots, outfitVoices);
+  // `dir` (VOICE_OPTIONAL_TREES native): the operator's own-language folder, or nothing when it has no such dub
+  const voiceTree = (lang, dirOf = null) => {
     const tree = {};
     for (const [charId, slots] of voiceSlotsByChar) {
-      if (!chars[charId]) continue;          // only the operators this game can field (`chars`: the 138 pool charIds and the 自选 picks)
+      if (!chars[charId] && !outfitVoices.has(charId)) continue; // only the operators this game can field (`chars`: the 138 pool charIds and the 自选 picks) and their outfits
+      const dir = dirOf ? dirOf(charId) : null;
+      if (dirOf && !dir) continue;
       const v = {};
       for (const [slot, assets] of Object.entries(slots)) {
         // one leaf per line (部署1 / 部署2 …): an array stays an array so the client can draw one — chaining them as
         // alternatives of a single leaf would keep only the first line that landed on disk.
-        const lines = assets.map((a) => leaf(voiceAlt(a, lang))).filter(Boolean);
+        const lines = assets.map((a) => leaf(dir ? nativeVoiceAlt(a, dir) : voiceAlt(a, lang))).filter(Boolean);
         if (!lines.length) continue;
         v[slot] = lines.length === 1 ? lines[0] : lines;
       }
@@ -683,13 +777,30 @@ export function buildPlan({ assets07, ops03, enemies05, maps05, audio, modelsDat
   const voice = voiceTree(voiceLang);
   if (!Object.keys(voice).length) notes.push('battle voice: charword_table.json has no slots (index missing?)');
 
+  // 语音语言 (the per-operator picker, public/js/ui/voiceLang.js): with `optionalVoice` the EN / KR dumps and each
+  // operator's own-language dub are trees beside the JP one, of the same shape (VOICE_OPTIONAL_TREES; public/js/audio.js
+  // VOICE_TREES) — `audio.voiceEn` / `audio.voiceKr` / `audio.voiceNative`. A line missing upstream stays missing
+  // (the client plays the Chinese one), never filled from another dub. `audio.voiceNativeLangType` names each
+  // own-language dub's official voiceLangType (ITA / RUS / …), the label of its square.
+  const nativeDirs = optionalVoice ? nativeVoiceDirs(charword) : new Map();
+  const optionalTrees = {};
+  if (optionalVoice) {
+    for (const [key, lang] of Object.entries(VOICE_OPTIONAL_TREES)) {
+      optionalTrees[key] = lang === 'native' ? voiceTree(lang, (id) => nativeDirs.get(id)?.dir) : voiceTree(lang);
+    }
+    const types = {};
+    for (const [charId, n] of nativeDirs) if (chars[charId] && voice[charId]) types[charId] = n.type;
+    optionalTrees.voiceNativeLangType = literal(types);
+  }
+
   const template = {
-    chars, enemies, tokens, bonds, items, bands, skills, skillsById, modules, ui, prof,
+    chars, enemies, tokens, bonds, items, bands, skills, skillsById, modules, ui, prof, outfits: outfitsTree,
     audio: {
       bgm,
       bossBgm: Object.fromEntries(Object.entries(bossBgm).sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true }))),
       voice,
       ...(voiceJp ? { voiceJp: voiceTree(VOICE_JP_LANG) } : {}),
+      ...optionalTrees,
       sfx: { ui: sfxUi, battle: sfxBattle, units: unitsSfx },
     },
   };

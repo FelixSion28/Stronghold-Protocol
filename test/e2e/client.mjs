@@ -148,6 +148,15 @@ export class Client {
     });
     page.on('response', (r) => { if (r.status() >= 400) this.problems.push(`http ${r.status()}: ${r.url()}`); });
     page.on('dialog', (d) => d.dismiss().catch(() => {}));
+    // the host's 搜寻队友 switch is on by default (ui/matchSearch.js): these runs start their rooms by hand
+    await page.evaluateOnNewDocument(() => {
+      try { if (localStorage.getItem('sp.pref.room.findMates') == null) localStorage.setItem('sp.pref.room.findMates', 'false'); } catch { /* ignore */ }
+    });
+    // this fork starts in English (ui/lang.js START_LANG); these runs read the Chinese msgids, so a page without its own
+    // language choice (stored or `?lang=`) starts in 中文
+    await page.evaluateOnNewDocument(() => {
+      try { if (localStorage.getItem('sp.pref.lang') == null) localStorage.setItem('sp.pref.lang', JSON.stringify('zh')); } catch { /* ignore */ }
+    });
     await page.goto(`${this.base}/${query}`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!globalThis.__SP__ && !!document.querySelector('.screen'), { timeout: 30000 });
   }

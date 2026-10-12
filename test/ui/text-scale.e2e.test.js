@@ -47,7 +47,8 @@ describe('文字大小 on a phone (headless Chrome)', { skip: !ENABLED && 'set S
     page.on('console', (m) => { if (m.type() === 'error') problems.push(`console: ${m.text()}`); });
     page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
     if (seed && textSize) await seedSettings(page, textSize);
-    await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
+    // this fork starts in English (ui/lang.js START_LANG); these checks read the Chinese msgids
+    await page.goto(`${url}${url.includes('?') ? '&' : '?'}lang=zh`, { waitUntil: 'networkidle0', timeout: 60000 });
     return { page, problems };
   }
 

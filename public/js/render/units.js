@@ -432,6 +432,11 @@ export class UnitView {
     this.ctx = ctx;
     this.P = P;
     this.info = { ...info };
+    // (fork, docs/OUTFITS.md) the outfit its owner chose: `model` = the outfit's model / picture id (assets.js outfitRec),
+    // for the Spine and the picture only — FORMS, sounds and voice stay keyed by `spine` (the operator's own id)
+    if (this.info.model == null && info.side !== 'enemy' && typeof ctx.outfitOf === 'function') {
+      try { const o = ctx.outfitOf(info); if (o) this.info.model = o; } catch { /* the default look */ }
+    }
     this.id = info.id;
     this.uid = info.uid ?? null;
     // the skill slot whose Spine clip the unit shows (DESIGN §16): an ally's equipped skill; an enemy's cast slot when the
@@ -450,6 +455,11 @@ export class UnitView {
     // a fast enemy walks on its model's own Run cycle when it has one (PR #275 by @xcdoge: 猎狗pro, moveSpeed 1.9, Run_Loop
     // 0.53 s next to Move_Loop 0.80 s; also 深池侦察犬 1.7). [ASSUMED] the threshold: faster than the standard 1
     this.moveFast = this.isEnemy && Number(def?.stats?.moveSpeed) > 1;
+    // (fork) a 重炮手 (fortress: Horn, Ashlock) melees while blocking and shoots its cannon otherwise (sim ai.js: the
+    // melee 'atk' carries kind 'none'); each attack's kind picks its model's clip set (SpineActor.rangedShot). Unblocked
+    // at first, so the cannon.
+    this.fortress = !this.isEnemy && ctx.lookupDef?.(info)?.subProfessionId === 'fortress';
+    this.rangedShot = this.fortress;
     // the official's own model quirks (enemies.json, read from its battle prefabs — tools/local-extract/enemy_model_offsets.py,
     // PR #211): a vertical stretch (its Graphic scale's sy / sx, the two 帝国炮火先兆者 at 1.263) and a mirrored X scale
     // (the Graphic's sx is negative, so the official draws the authored model flipped: 木制瑞印)
@@ -565,7 +575,7 @@ export class UnitView {
   _loadPicture() {
     const a = this.ctx.assets;
     // (an ICE_TOKENS unit takes no picture: the token fallback would be its owner's face — assets.js tokenAvatarUrl)
-    const url = ICE_TOKENS.has(this.info.defId) ? null : a && (a.picture ? a.picture(this.info.avatar) || a.picture(this.info.defId) || a.picture(this.info.spine) : null);
+    const url = ICE_TOKENS.has(this.info.defId) ? null : a && (a.picture ? (this.info.model && a.picture(this.info.model)) || a.picture(this.info.avatar) || a.picture(this.info.defId) || a.picture(this.info.spine) : null);
     this._pic = { key: String(this.info.avatar || this.info.defId || 'unknown'), color: this._frameColor(), img: null, state: 'none', shown: null, t0: nowMs() };
     if (!url || !a.image) return;
     const cached = typeof a.imageNow === 'function' ? a.imageNow(url) : null;
@@ -588,11 +598,18 @@ export class UnitView {
     pic.shown = want;
   }
 
+  /** The model id drawn: the owner's outfit when the manifest has its model (fork, docs/OUTFITS.md), else the unit's own. */
+  _modelId() {
+    const o = this.info.model;
+    if (o && this.ctx.assets?.spineEntry?.(o)) return o;
+    return this.info.spine || this.info.defId;
+  }
+
   /** @param {boolean} [retry] load again even after a remembered failure (assets.js acquire `{ retry }`) */
   _loadSpine(retry = false) {
     const a = this.ctx.assets;
     if (!a || !a.spineEntry || !a.spine) return;
-    const id = this.info.spine || this.info.defId;
+    const id = this._modelId();
     // Front/Back rule (research 07 §5.5 / 09 §1.2): Front facing right/down (mirrored for left), Back facing up — while
     // standing (a knocked-out operator lies with the model that has a fall: _wantsBack).
     const back = this._wantsBack();
@@ -644,6 +661,7 @@ export class UnitView {
         actor.setRunMode(this.moveFast);
         // enemies play their attack clip once per attack, then walk on (GitHub #58: the sim stands them for that clip)
         actor.clipPerAttack = this.isEnemy;
+        actor.rangedShot = this.rangedShot;
       } catch (err) {
         console.warn('[render] spine build failed', id, err?.message || err);
         this._releaseEntry(entry);
@@ -912,7 +930,7 @@ export class UnitView {
    */
   _wantsBack() {
     const a = this.ctx.assets;
-    const id = this.info.spine || this.info.defId;
+    const id = this._modelId();
     if (this.isEnemy || this.dir !== 'UP' || !id || !a || typeof a.hasBack !== 'function' || !a.hasBack(id)) return false;
     return this.alive || dieClipDur(typeof a.spineEntry === 'function' ? a.spineEntry(id, { back: true }) : null) > 0;
   }
@@ -987,8 +1005,16 @@ export class UnitView {
       this.lungeDir.x = dx / len; this.lungeDir.y = dy / len;
     }
     this.lunge = 1;
+    this._shotKind(kind);
     if (this.actor) this.actor.attack(this.atkInterval, once); // game seconds: the actor's clock runs in game time
     if (this.imp) this.imp.dirty = true;
+  }
+
+  /** A fortress: this attack's kind ('none' = its melee) picks the clip set the coming attack plays. */
+  _shotKind(kind) {
+    if (!this.fortress) return;
+    this.rangedShot = !!kind && kind !== 'none';
+    if (this.actor) this.actor.rangedShot = this.rangedShot;
   }
 
   /**
@@ -998,6 +1024,7 @@ export class UnitView {
    */
   windUp(lead, kind) {
     if (!this.alive || !this.actor || !this.spineReady) return false;
+    this._shotKind(kind);
     const ok = this.actor.windUp(this.atkInterval, lead, !!PROJ[kind]?.once);
     if (ok && this.imp) this.imp.dirty = true;
     return ok;
@@ -1061,7 +1088,7 @@ export class UnitView {
   /** Seconds of the fall of the model the unit wants now (its manifest entry's Die clip), 0 without one. */
   _fallDur() {
     const a = this.ctx.assets;
-    const id = this.info.spine || this.info.defId;
+    const id = this._modelId();
     return a && typeof a.spineEntry === 'function' && id ? dieClipDur(a.spineEntry(id, { back: this._wantsBack() })) : 0;
   }
 
@@ -1234,7 +1261,7 @@ export class UnitView {
         const was = this.actor.clipOn;
         this.actor.setClipping(clip);
         clipFlip = was !== this.actor.clipOn;
-        if (clip && this.ctx.impostors) interval = Math.max(1, interval);
+        if (this.actor.clipOn && this.ctx.impostors) interval = Math.max(1, interval);
       }
       // a pose that cannot change (a knocked-out operator lying in its held Die pose, a frozen model) is neither re-posed
       // nor redrawn — it would draw the same pixels again; the actor's clock still runs
@@ -1618,6 +1645,18 @@ export class UnitView {
   // slot the unit keeps a private RenderTexture (same visuals, one extra framebuffer switch).
 
   _impBox() {
+    // every pose of the model (SpineActor.extents): a box from the pose of the first render cut later ones off at its
+    // edge (Ashlock's cannon when firing reached 412 units, the box 412 at most). Rebuilt when the extents change (the
+    // deploy clip ends).
+    const e = this.ctx.legacyImpostorBox?.() ? null : this.actor.extents?.() || null;
+    if (this._box && this._box.src === e) return this._box;
+    if (e) {
+      const pad = 24 + 0.04 * Math.max(e[2] - e[0], e[3] - e[1]); // mixes between clips, poses between samples
+      const x0 = Math.min(e[0] - pad, -140), x1 = Math.max(e[2] + pad, 140);
+      const y0 = Math.min(e[1] - pad, -260), y1 = Math.max(e[3] + pad, 30);
+      this._box = { x0, y0, w: x1 - x0, h: y1 - y0, src: e };
+      return this._box;
+    }
     if (this._box) return this._box;
     let b = null;
     try { b = this.actor.spine.getLocalBounds(); } catch { b = null; }

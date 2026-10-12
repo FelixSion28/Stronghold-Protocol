@@ -5,6 +5,7 @@ import { DIFFICULTIES, NAME_MAX_LEN, ROOM_CODE_LEN, ROOM_TIMER_SCALE, MAX_SEATS,
 import { isDroppableChess } from './standIn.js';
 import { diySlotIds, validateDiyPicks } from './diy.js';
 import { cultivatedStats, isPotential, isCultivate, POTENTIAL_DEFAULT, CULTIVATE_DEFAULT } from './potential.js';
+import { isOutfitMap } from './outfits.js';
 
 // ---- tiny validators -------------------------------------------------------
 const isInt = (v, lo = -Infinity, hi = Infinity) => Number.isInteger(v) && v >= lo && v <= hi;
@@ -416,15 +417,27 @@ export const C2S = {
   // 自选编队 (0.2.0 DIY): the player's DIY slot picks; stored per session / seat like room.ownership (a match takes the
   // picks its seat had when it started; during a match they are stored for the next one: ROOM_STARTED)
   'room.diy': { picks: isDiyPicks },
+  // (fork, docs/OUTFITS.md) 时装: the player's outfit choice { [charId]: skinId } — stored per session / seat and shown to
+  // every member through room.state seats[].outfits; accepted in any phase (cosmetic: the match never reads it)
+  'room.outfits': { outfits: isOutfitMap },
   // spectator seats (remake feature, community report #26; MAX_SPECTATORS): take one of a co-op room's spectator seats —
   // in its lobby or while its match runs — never a player seat; the host frees one by playerId (the spectator gets
   // room.closed { reason: 'kicked' }). room.leave / g.leave leave a spectator seat like a player seat.
   'room.spectate': { code: (v) => isStr(v, ROOM_CODE_LEN + 2) && /^[A-Za-z0-9]+$/.test(v) },
   'room.removeSpectator': { playerId: isId },
+  // 搜寻队友 (DESIGN §90): the host of a co-op room turns the search on or off
+  'room.search': { on: isBool },
+  // 单人匹配 (DESIGN §90): queue from the lobby without a room; queue.ai once queue.state's aiAt has passed
+  'queue.join': { difficulty: (v) => DIFFICULTIES.includes(v) },
+  'queue.leave': {},
+  'queue.ai': {},
 
   // match
   'g.infoReady': { setupRevision: (v) => isInt(v, 0, 2 ** 31), $optional: ['setupRevision'] },
   'g.rerollVote': { voteId: (v) => isInt(v, 1, 2 ** 31), agree: isBool },
+  // the briefing's 核心盟约 call (remake feature): the core bond the player is going for, shown to the teammates on the
+  // bond disc; the same bond again or absent / null clears it (INFO_CHECK only, else WRONG_PHASE; server/match/bondCall.js)
+  'g.bondCall': { bondId: nullable(isId), $optional: ['bondId'] },
   'g.band': { bandId: isId, ...draftScope, $optional: draftScopeOptional },
   'g.bandSkip': { ...draftScope, $optional: draftScopeOptional },
   // the strategy highlighted in the draft screen (user playtest #4 item 4): a turn that runs out takes it while it is
@@ -495,6 +508,14 @@ export const S2C = [
   'b.start', 'b.pool', 'b.end',
   // server-run combat streaming (legacy / SP_COMBAT=server only)
   'b.snap', 'b.ev',
+  // sys.notice { id, text, until } — operator notice (server/announce.js)
+  'sys.notice',
+  // sys.retire { gen } — a newer server generation took over: go to `/` once no match is on screen (server/generation.js)
+  'sys.retire',
+  // sys.online { online, searching: { [difficulty]: humans } } — server/presence.js
+  'sys.online',
+  // queue.state { queued, difficulty?, since?, aiAt?, placed? } — 单人匹配 (server/lobby.js sendQueue)
+  'queue.state',
 ];
 
 /**

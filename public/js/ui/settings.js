@@ -13,6 +13,10 @@
 // settings only inflate the glyphs inside fixed boxes (and page zoom is off: index.html's viewport, ui/device.js).
 // Only font-size declarations read `--t`, so the board, the HUD bands the prep camera keeps clear and the detail
 // card's side do not move — the field is sized from the host element's clientWidth (render/app.js).
+//
+// This fork: 语音语言 also offers the per-operator picker's dubs (EN / KR) and, beside them, the 本土语言 switch
+// (every operator with an own-language dub speaks it); every change of either goes to ui/voiceLang.js, which clears
+// the per-operator picks. Below the quality and 文字大小 rows sits the row that opens the asset preload (ui/preload.js).
 
 import { useLayoutEffect, useRef, useState } from '../../vendor/hooks.module.js';
 import { html, Modal, Button, Icon, MicroLabel } from './components.js';
@@ -23,13 +27,15 @@ import { audio } from '../audio.js';
 import { openGuide } from './guide.js';
 import { detectFeatures } from './device.js';
 import { LangToggle, machineTranslationNote } from './lang.js';
+import { setDefaultVoiceLang } from './voiceLang.js';
+import { AssetCacheButton } from './assetCache.js';
 import { t, tc, N_ } from '../../../shared/i18n.js';
 import { errorCount, currentBattle, diagnosticsText } from '../diag.js';
 import { copyText } from './clipboard.js';
 
 const cx = (...p) => p.flat().filter(Boolean).join(' ');
 
-/** Settings store: { bgm, sfx, voice, voiceLang, voiceOverrides, muted, damageNumbers, quality, textSize, keys }. */
+/** Settings store: { bgm, sfx, voice, voiceLang, voiceNative, muted, damageNumbers, quality, textSize, keys }. */
 export const settingsStore = createStore(sanitizeSettings(loadPref('settings', null)));
 
 /**
@@ -47,11 +53,14 @@ export function applyTextSize(v) {
 settingsStore.subscribe((s) => {
   savePref('settings', sanitizeSettings(s));
   audio.setVolumes(s);
-  audio.setVoiceLang(s.voiceLang, s.voiceOverrides);
+  audio.setVoiceLang(s.voiceLang);
+  audio.setVoiceNative(s.voiceNative);
+  setDefaultVoiceLang(s.voiceLang, s.voiceNative);
   applyTextSize(s.textSize);
 });
 audio.setVolumes(settingsStore.get());
-audio.setVoiceLang(settingsStore.get().voiceLang, settingsStore.get().voiceOverrides);
+audio.setVoiceLang(settingsStore.get().voiceLang);
+audio.setVoiceNative(settingsStore.get().voiceNative);
 // before the first render (main.js boot renders after its imports ran): the stored step is on screen without a flash
 applyTextSize(settingsStore.get().textSize);
 
@@ -95,10 +104,18 @@ const QUALITY = [['high', N_('高')], ['medium', N_('中')], ['low', N_('低')]]
  */
 const TEXT_SCALES = [['sm', N_('小')], ['md', N_('中')], ['lg', N_('大')], ['xl', N_('特大')]];
 /**
- * 语音语言: each dub named in its own language, like the interface language switch (ui/lang.js) — the owner's
- * 「中文 / 日本語」 (2026-10-08); VOICE_LANGS order.
+ * 语音语言: each dub named in the interface language (msgids), so a player need not read the other
+ * scripts to find theirs — unlike the interface language switch (ui/lang.js), where whoever opens it may not read the
+ * current one; VOICE_LANGS order. 英语 / 韩语: the per-operator picker's dubs (ui/voiceLang.js).
  */
-const VOICE_LANG_NAMES = { cn: '中文', jp: '日本語' }; // i18n-ignore
+const VOICE_LANG_NAMES = {
+  cn: N_('中文'), // en: "Chinese"
+  jp: N_('日语'), // en: "Japanese"
+  en: N_('英语'), // en: "English"
+  kr: N_('韩语'), // en: "Korean"
+};
+/** The 本土语言 switch's tooltip (its button: the short `voice-lang::本土语言`, en "Native"). */
+const VOICE_NATIVE_TIP = N_('有本土语言配音时使用'); // en: "Use native-language dub if available"
 /** The rebindable shortcuts' names (msgids), by action. */
 const HOTKEY_NAMES = { refresh: N_('刷新商店'), freeze: N_('冻结 / 解冻商店'), levelUp: N_('升级调度中心'), retreat: N_('撤退选中干员'),
   sell: N_('出售选中干员'), ready: N_('准备就绪 / 暂停（独立模拟）') };
@@ -241,9 +258,9 @@ export function SettingsModal({ open, onClose }) {
   const [tested, setTested] = useState(false);
   const [touchUi] = useState(() => detectFeatures().coarse && !detectFeatures().fine);
   const mtNote = machineTranslationNote(); // a pack marked as machine translation says so under the switch
-  return html`<${Modal} open=${open} onClose=${onClose} title=${t('设置')} micro="SETTINGS" width="7.4rem"
-                        actions=${html`<${Button} variant="secondary" icon="book" class="set-guide" onClick=${() => openGuide(0)}>${t('玩法说明')}<//>
-                        <${Button} variant="primary" icon="check" onClick=${onClose}>${t('完成')}<//>`}>
+  return html`<${Modal} open=${open} onClose=${onClose} title=${t('设置')} micro="SETTINGS" width="8.5rem"
+    actions=${html`<${Button} variant="secondary" icon="book" class="set-guide" onClick=${() => openGuide(0)}>${t('玩法说明')}<//>
+      <${Button} variant="primary" icon="check" onClick=${onClose}>${t('完成')}<//>`}>
     <div class="set-list">
       <div class="set-row">
         <span class="set-row__label">${t('语言')}<${MicroLabel}>LANGUAGE<//></span>
@@ -254,9 +271,15 @@ export function SettingsModal({ open, onClose }) {
       <${Slider} label=${t('干员语音')} micro="VOICE" icon="mic" value=${s.voice} onInput=${(v) => updateSettings({ voice: v })} />
       <div class="set-row">
         <span class="set-row__label">${t('语音语言')}<${MicroLabel}>VOICE LANGUAGE<//></span>
-        <div class="set-seg" role="radiogroup" aria-label=${t('语音语言')} data-testid="voice-lang">
-          ${VOICE_LANGS.map((id) => html`<button key=${id} type="button" role="radio" aria-checked=${s.voiceLang === id ? 'true' : 'false'}
-            lang=${id === 'jp' ? 'ja' : 'zh'} class=${s.voiceLang === id ? 'is-on' : ''} onClick=${() => updateSettings({ voiceLang: id })}>${VOICE_LANG_NAMES[id]}</button>`)}
+        <div class="set-voice">
+          <div class="set-seg" role="radiogroup" aria-label=${t('语音语言')} data-testid="voice-lang">
+            ${VOICE_LANGS.map((id) => html`<button key=${id} type="button" role="radio" aria-checked=${s.voiceLang === id ? 'true' : 'false'}
+              class=${s.voiceLang === id ? 'is-on' : ''} onClick=${() => updateSettings({ voiceLang: id })}>${t(VOICE_LANG_NAMES[id])}</button>`)}
+          </div>
+          <div class="set-seg">
+            <button type="button" aria-pressed=${s.voiceNative ? 'true' : 'false'} class=${s.voiceNative ? 'is-on' : ''} title=${t(VOICE_NATIVE_TIP)}
+              data-testid="voice-native" onClick=${() => updateSettings({ voiceNative: !s.voiceNative })}>${tc('voice-lang', '本土语言')}</button>
+          </div>
         </div>
       </div>
       <${Slider} label=${t('音效')} micro="SFX" icon="signal" value=${s.sfx}
@@ -278,6 +301,7 @@ export function SettingsModal({ open, onClose }) {
         </div>
       </div>
       <p class="set-hint set-textsize-note">${t('调整界面文字大小，棋盘保持原比例。')}</p>
+      <div class="set-row"><${AssetCacheButton} /></div>
       <${HotkeySection} keys=${s.keys} touchUi=${touchUi} />
       <${DiagSection} />
       <p class="set-hint">${touchUi ? t('触屏操作：点击单位选中（撤退 / 出售）· 长按单位或卡牌查看详情 · 拖动部署后滑动选择朝向') : t('右键查看详情')}</p>

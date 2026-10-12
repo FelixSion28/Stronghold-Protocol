@@ -36,7 +36,8 @@ describe('0.2.3 follow-up client features', { skip: !ENABLED }, () => {
     await page.setViewport({ width: phone ? 844 : 1440, height: phone ? 390 : 900 });
     if (random != null) await page.evaluateOnNewDocument((value) => { Math.random = () => value; }, random);
     await page.evaluateOnNewDocument(() => { localStorage.setItem('sp.name', 'Recovery Test'); sessionStorage.setItem('sp.entered', '1'); });
-    await page.goto(base, { waitUntil: 'domcontentloaded' });
+    // this fork starts in English (ui/lang.js START_LANG); these checks read the Chinese msgids
+    await page.goto(`${base}/?lang=zh`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => globalThis.__SP__?.store.get().connection.status === 'online' && document.querySelector('.lobby-screen'));
     return page;
   }
@@ -173,17 +174,20 @@ describe('0.2.3 follow-up client features', { skip: !ENABLED }, () => {
     const ctx = await browser.createBrowserContext();
     try {
       const page = await pageIn(ctx, true);
-      const open = async () => { await page.evaluate(async () => (await import('/js/ui/loadoutSync.js')).openLoadout()); await page.waitForSelector('.lo-card__pick'); await page.click('.lo-card__pick'); await page.waitForSelector('[data-voice-char] select', { visible: true }); };
+      // this fork: master's per-operator dropdown is replaced by the square picker (ui/voiceLang.js, sp.pref.voiceLang)
+      const open = async () => { await page.evaluate(async () => (await import('/js/ui/loadoutSync.js')).openLoadout()); await page.waitForSelector('.lo-card__pick'); await page.click('.lo-card__pick'); await page.waitForSelector('[data-voice-char] [data-lang]', { visible: true }); };
       await open();
       const id = await page.$eval('[data-voice-char]', (e) => e.dataset.voiceChar);
-      await page.select('[data-voice-char] select', 'jp');
-      assert.equal(await page.evaluate(async (id) => (await import('/js/audio.js')).audio.voiceOverrides[id], id), 'jp');
+      const def = await page.$eval('[data-voice-char] [aria-checked="true"]', (e) => e.dataset.lang);
+      const pick = await page.$eval('[data-voice-char] [aria-checked="false"]', (e) => e.dataset.lang);
+      await page.click(`[data-voice-char] [data-lang="${pick}"]`);
+      assert.equal(await page.evaluate(async (id) => (await import('/js/audio.js')).audio.voicePicks[id], id), pick);
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.waitForFunction(() => globalThis.__SP__?.store.get().connection.status === 'online');
       await open();
-      assert.equal(await page.$eval('[data-voice-char] select', (e) => e.value), 'jp');
-      await page.select('[data-voice-char] select', '');
-      assert.equal(await page.evaluate((id) => JSON.parse(localStorage.getItem('sp.pref.settings')).voiceOverrides[id], id), undefined);
+      assert.equal(await page.$eval('[data-voice-char] [aria-checked="true"]', (e) => e.dataset.lang), pick);
+      await page.click(`[data-voice-char] [data-lang="${def}"]`);
+      assert.equal(await page.evaluate((id) => JSON.parse(localStorage.getItem('sp.pref.voiceLang')).byChar[id], id), undefined);
     } finally { await ctx.close(); }
   });
   test('install manifest is eligible and a dismissed offer is consumed through the actual button', async () => {

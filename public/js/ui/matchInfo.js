@@ -21,6 +21,7 @@ import { html, Button, Icon, MicroLabel, BondDisc, Tooltip, Modal } from './comp
 import { UnitThumb } from './gameComponents.js';
 import { bannedPerBond, disabledBondSets, briefingBondTip, diyBannedPieces } from './gameLogic.js';
 import { bondIconUrl } from './assetUrls.js';
+import { BondCallMark, bondCallTip } from './bondCall.js';
 import { data } from '../data.js';
 import { t, dn } from '../../../shared/i18n.js';
 
@@ -70,24 +71,56 @@ export function DiyBannedLine({ model, class: cls = 'brief-banned__diy' }) {
 }
 
 /**
+ * The box beside a bond's tooltip: its banned members (the badge's count), each with avatar, name and bonds (the hovered
+ * one highlighted); null when none are banned.
+ * @param {any} bond @param {MatchInfoModel} model @param {Set<string>} banned
+ */
+function BondBannedAside(bond, model, banned) {
+  const ids = (Array.isArray(bond.visibleMembers) ? bond.visibleMembers : []).filter((id) => banned.has(id));
+  if (!ids.length) return null;
+  const nameOf = new Map(model.bonds.map((b) => [b.bondId, b.name]));
+  return html`<div class="brief-bantip">
+    <div class="brief-bantip__h">${t('本局禁用干员')}</div>
+    ${ids.map((id) => {
+      const c = data.lookup('chess', id);
+      const bonds = (Array.isArray(c?.bonds) ? c.bonds : []).filter((b) => nameOf.has(b));
+      return html`<div key=${id} class="brief-bantip__op" data-chess=${id}>
+        <${UnitThumb} kind="chess" id=${id} size="xs" showTier=${false} />
+        <div class="brief-bantip__txt"><b>${c?.name || id}</b>
+          <span>${bonds.map((b, i) => html`${i ? ' · ' : ''}<span class=${cx(b === bond.bondId && 'is-this')}>${nameOf.get(b)}</span>`)}</span></div>
+      </div>`;
+    })}
+  </div>`;
+}
+
+/**
  * One row of bond discs (核心盟约 / 附加盟约): a greyed disc (✕) for a bond in the drawn set D or one the mode never
  * activates, the red badge with its banned members, a red ring on an enabled bond that lost members; the tooltip says
- * which (briefingBondTip).
- * @param {{ title: string, micro: string, bonds: any[], model: MatchInfoModel }} props
+ * which (briefingBondTip). The briefing's 核心盟约 call (ui/bondCall.js): `calls` (bondId → callers) adds the P1–P4 / conflict
+ * marker and its tip line, `onCall` makes every bond the mode activates a button, `hint` sits beside the title. A bond
+ * with banned members lists them in a second box beside the tooltip (BondBannedAside).
+ * @param {{ title: string, micro: string, bonds: any[], model: MatchInfoModel, calls?: Map<string, any[]>|null,
+ *   onCall?: ((bondId: string) => void)|null, myId?: string|null, hint?: any }} props
  */
-export function MatchBondRow({ title, micro, bonds, model }) {
+export function MatchBondRow({ title, micro, bonds, model, calls = null, onCall = null, myId = null, hint = null }) {
   const m = data.get('assets');
-  return html`<div class="brief-bonds">
-    <h3 class="brief-h"><span>${title}</span><${MicroLabel}>${micro}</${MicroLabel}></h3>
+  const banned = new Set(model.banned);
+  return html`<div class=${cx('brief-bonds', hint && 'brief-bonds--call')}>
+    <h3 class=${cx('brief-h', hint && 'brief-h--hint')}><span>${title}</span><${MicroLabel}>${micro}</${MicroLabel}>
+      ${hint ? html`<span class="brief-call__hint"><${Icon} name="info" />${hint}</span>` : null}</h3>
     <div class="brief-bonds__row">
       ${bonds.map((b) => {
         const state = model.stateOf(b.bondId);
         const off = !!state;
         const bannedN = model.perBond.get(b.bondId) || 0;
-        return html`<${Tooltip} key=${b.bondId} text=${briefingBondTip(b.name, state, bannedN)}>
+        const callers = calls?.get(b.bondId) || [];
+        const tip = [briefingBondTip(b.name, state, bannedN), bondCallTip(callers)].filter(Boolean).join('\n');
+        const call = onCall && state !== 'off' ? () => onCall(b.bondId) : undefined;
+        return html`<${Tooltip} key=${b.bondId} text=${tip} aside=${bannedN > 0 ? BondBannedAside(b, model, banned) : null}>
           <div class=${cx('brief-bond', off && 'is-off', state === 'drawn' && 'is-incomplete', !off && bannedN > 0 && 'is-partial')} data-bond=${b.bondId}>
             <${BondDisc} name=${b.name} icon=${bondIconUrl(m, b.bondId)} active=${!off} disabled=${off} tier=${off ? 0 : (b.thresholds?.length || 1)}
-              maxTier=${Math.max(1, b.thresholds?.length || 1)} size="md" />
+              maxTier=${Math.max(1, b.thresholds?.length || 1)} size="md" onClick=${call} />
+            <${BondCallMark} callers=${callers} myId=${myId} />
             ${bannedN > 0 ? html`<span class="brief-bond__ban num"><${Icon} name="user" />${bannedN}</span>` : null}
           </div>
         <//>`;
@@ -120,11 +153,12 @@ export function BannedOperators({ model }) {
 }
 
 /**
- * The briefing's bonds and banned operators: 核心盟约, 附加盟约, the legend, 本局禁用干员.
- * @param {{ model: MatchInfoModel }} props
+ * The briefing's bonds and banned operators: 核心盟约, 附加盟约, the legend, 本局禁用干员. `call` (the briefing only): the
+ * 核心盟约 call of ui/bondCall.js — `{ calls, onCall?, myId?, hint? }` for the core row (read-only without onCall).
+ * @param {{ model: MatchInfoModel, call?: { calls: Map<string, any[]>, onCall?: Function|null, myId?: string|null, hint?: any }|null }} props
  */
-export function MatchInfo({ model }) {
-  return html`<${MatchBondRow} title=${t('核心盟约')} micro="CORE BONDS" bonds=${model.core} model=${model} />
+export function MatchInfo({ model, call = null }) {
+  return html`<${MatchBondRow} title=${t('核心盟约')} micro="CORE BONDS" bonds=${model.core} model=${model} ...${call || {}} />
     <${MatchBondRow} title=${t('附加盟约')} micro="ADD-ON BONDS" bonds=${model.addon} model=${model} />
     <${MatchLegend} model=${model} />
     <${BannedOperators} model=${model} />`;

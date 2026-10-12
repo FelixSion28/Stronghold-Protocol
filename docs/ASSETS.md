@@ -70,6 +70,7 @@ npm run assets       # = node tools/vendor.mjs && node tools/fetch-assets.mjs
 | `--dry-run` | Print the plan (file and model counts, alias notes) and exit. |
 | `--refresh-index` | Re-download the upstream indexes: `audio_data.json`, `charword_table.json` (the 干员战斗语音 slots) and `models_data.json`. |
 | `--voice-lang=cn` | The dub of `audio.voice` (the 中文 voice setting): `cn` (default) | `jp` | `en` | `kr` — the same file names under `voice_cn/`, `voice/`, `voice_en/`, `voice_kr/`. `audio.voiceJp` (the 日本語 setting) is always the JP dub: every run plans both trees. |
+| `--no-optional-voice` | Only the `--voice-lang` dub and `audio.voiceJp`. By default the EN / KR dumps and each operator's own-language dub (`voice_custom/<wordkey>/`, 44 operators) are downloaded too, for the per-operator voice language picker (the trees `audio.voiceEn` / `audio.voiceKr` / `audio.voiceNative`, beside master's `audio.voiceJp`). |
 | `--voice-all` | Plan every official voice slot, including the prep-only lines no battle plays (干员报到 / 编入队伍 / 任命队长 — 360 files, one per operator and slot). Off by default: nothing requests them, so planning them only makes every run download more. |
 | `--prune` | Delete files under `public/assets/` that the manifest no longer references, for example after a mapping change. Without this flag they are only listed in the report. `public/assets/local/` (written by `tools/local-extract`) is never pruned. Implies `--allow-shrink`. |
 | `--allow-shrink` | Write `data/assets.json` even when it loses entries the current one has (see "The manifest never shrinks by accident" below). |
@@ -217,7 +218,7 @@ All paths are URL paths relative to the site root, for example `/assets/char/ava
   hash: 'a1b2c3d4e5f6',             // content hash (cache busting)
   generator: 'tools/fetch-assets.mjs',
   stats: { files, bytes, chars, charsWithBack, enemies, enemiesWithSpine, tokens, tokensWithSpine,
-           spineModels, bonds, items, bands, skills, modules, ui, sfxUnits, voiceChars, voiceJpChars },
+           spineModels, bonds, items, bands, skills, modules, ui, sfxUnits, voiceChars, voiceJpChars, voiceEnChars, voiceKrChars, voiceNativeChars },
   chars:   { [charId]: { avatar, avatarE2?, portrait, portraitE2?, spine: { front: Spine, back?: Spine } } },
   enemies: { [enemyId]: { icon, spine?: Spine, spineAliasOf?: enemyId,
                           spineLocal?: { group, skel, atlas, textures, …Spine } } },
@@ -237,6 +238,10 @@ All paths are URL paths relative to the site root, for example `/assets/char/ava
                                     // 'emoticon/basic/pic_happy_battle', 'guide/autochess_home_1': the data/local-assets.json
                                     // group + name of the same picture (the client takes the local one first)
   prof:    { icon: {caster…warrior}, large: {…}, battlecard: {…, token}, sub: {[subProfessionId]: url} },
+  // (fork) the outfits (时装): docs/OUTFITS.md — files under /assets/outfit/, the artwork converted to WebP; the
+  // outfits' own voice sets sit in the voice trees below under their word key ('char_x_epoque#28')
+  outfits: { chars: { [skinId]: { avatar, portrait, art, spine: { front, back? } } },
+             tokens: { [tokenSkinId]: { token, avatar?, spine? } }, defaults: { [charId]: { art } } },
   audio: {
     bgm:     { lobby, prep, combat, combatAlts?: [{ intro?, loop }, …], unite?: { intro?, loop }, boss: { intro?, loop } },
              // intro then crossfade to loop (1 s); combatAlts = the 开战 tracks of the mode's own act, chosen by the
@@ -258,9 +263,20 @@ All paths are URL paths relative to the site root, for example `/assets/char/ava
     voiceJp: { [charId]: { …the slots of `voice` } },
                            // the Japanese dub (0.2.2, the owner's request 「全套的日配语音」): the same slots, lines and file
                            // names as `voice`, under /assets/audio/voice/jp/ (AA2 `voice/`). The client plays it when the
-                           // player picks 日本語 (settings 语音语言, not tied to the interface language) and falls back to
+                           // player picks 日本語 (settings 语音语言, not tied to the interface language; also the JP
+                           // square of the per-operator picker, ui/voiceLang.js) and falls back to
                            // `voice` for a slot it lacks or a file the host does not have (public/js/audio.js voiceLine);
                            // the full zip ships it unless tools/package.mjs FULL_ZIP_JP_VOICE is off
+    voiceEn?: { [charId]: { …the slots of `voice` } },      // the per-operator voice picker's dubs (ui/voiceLang.js; settings
+    voiceKr?: { [charId]: { …the slots of `voice` } },      // 语音语言 English / 한국어), trees exactly like `voiceJp`: the
+                           // same slots and file names under /assets/audio/voice/en/ and /kr/ (AA2 `voice_en/`,
+                           // `voice_kr/`); an operator not on the global server yet has no entry (it speaks JP). The
+                           // client plays them through voiceLine (audio.js VOICE_TREES) with the same fallback to `voice`
+    voiceNative?: { [charId]: { …the slots of `voice` } },  // the operator's own-language dub (charword voiceLangDict,
+                           // groupType CUSTOM) under /assets/audio/voice/native/<wordkey>/ (AA2 `voice_custom/`)
+    voiceNativeLangType?: { [charId]: 'ITA' | 'GER' | 'RUS' | 'FRE' | 'SPA' | 'CN_TOPOLECT' },   // its official voiceLangType,
+                           // the label of its square in the picker. The four picker keys are not built with
+                           // --no-optional-voice; the full zip ships them unless tools/package.mjs FULL_ZIP_OPTIONAL_VOICE is off
     sfx: {
       ui:     { click, back, confirm, tab, pick, drop, error, buy, sell, income, refresh, freeze, levelup,
                 merge, equip, itemMerge, bondUp, artPlace, ready, timer, draft, yourTurn, yourTurnCircle,
@@ -301,8 +317,14 @@ All paths are URL paths relative to the site root, for example `/assets/char/ava
   events: [name],                     // e.g. ['OnAttack', 'OnStart']
   hits: { [animName]: [seconds] },    // OnAttack event times (apply damage / spawn projectile)
   bounds: { x, y, width, height } | null  // skeleton AABB (setup pose, skeleton units)
+  extents: { [animName]: [x0, y0, x1, y1] } | null  // each clip's reach, sampled every 1/20 s (skel.mjs clipExtents)
 }
 ```
+
+`extents` sizes the impostor box (render/units.js `_impBox`): the union of the clips the unit has played
+(`SpineActor.extents`), the deploy clip only while it plays. Units are y-down as pixi-spine draws them; invisible
+attachments are skipped. A manifest without them falls back to the bounds of the first rendered pose, which cuts off
+poses that reach further (a cannon's recoil, a skill effect).
 
 The enemies' attack clip lengths are also a data input: `tools/build-data.mjs` copies each enemy model's
 `anims.attack.loop` length and first `hits` time into data/enemies.json `attackAnim` (the sim stands an unblocked
@@ -480,6 +502,36 @@ The 2026-09-27 verification pass also checked:
 - **Audio:** all 467 MP3s decode with ffmpeg without errors.
 - **Browser:** headless Chrome loads and animates all 529 Spine models with the vendored PixiJS 7.4.2 and pixi-spine 4.0.6, with no console errors. Chrome's font sanitizer also accepts the three WOFF2 files.
 - **Official data:** 771 provenance checks against the official data (`activity_table`, `skill_table`, `models_data.json`) all match: avatars, portraits, E2 art, bond, band and item icons, and enemy skeleton files.
+
+## Preload
+
+Settings ▸ Preload Assets keeps the assets on the player's disk, so nothing downloads mid-match.
+
+- **Manifest** `/data/resource-manifest.json` (server/resources.js): every file under `public/assets` and `public/fonts` up
+  to 24 MiB as `[path, size, sha1-12]`. Built once per process in the background at boot; hashes are cached by
+  size + mtime in `node_modules/.cache/sp-resource-hashes.json` (cold build ~12 s for 820 MB, warm ~1.5 s). Served
+  `no-cache` with an ETag, so clients revalidate with a 304.
+- **Packs** (shared/resources.js `packOf`): `visual` (spine, char, local maps, ui, icons, fonts, ≈400 MB) and `audio` (bgm,
+  sfx, guide art, ≈87 MB) are always included; voice packs `cn` / `en` / `jp` / `kr` / `native` (19–90 MB each) are a
+  checklist, pre-ticked from the voice language settings (default + per-operator picks) until the player edits it.
+- **Download** (public/js/resources/store.js): one Cache Storage cache, keyed by path; each entry carries the hash of
+  its bytes in an `X-SP-Resource` header (no shared index, so the page and the worker never overwrite each other). Files are fetched as `<path>?v=<hash>` (audio through `/media/…`), which files.js marks immutable, so
+  Cloudflare caches each version and the VPS sends it once per edge. `cache: 'no-store'` avoids a second copy in the HTTP
+  cache. Size and SHA-1 are checked before a file is stored; 4 lanes for small files plus 1 for files over 4 MiB (1 lane
+  in total during a match); Web Lock so only one tab downloads. Outdated entries are deleted first, and entries the
+  manifest no longer lists only after a complete run. `navigator.storage.persist()` + `estimate()` before starting.
+- **Worker** (public/resource-sw.js, classic): answers GET `/assets/**`, `/fonts/**`, `/media/**` without a query from
+  the cache, but only files whose stored hash equals the current manifest's (re-read at most once a minute, on page
+  loads), with Range support; everything else goes to the network. A file the game fetches that is not saved yet is
+  saved on the way when it is in the manifest, in a pack the player picked (`/__sp-resource-packs__`, written by the
+  page) and its size + SHA-1 match; the download then skips it. Lifecycle: start → pause / resume (saved files are
+  used at once) → complete; the set then stays in use until Clear Cache, which deletes it and unregisters the worker.
+- **Cloudflare** (behind a proxy): a cache rule making `/assets/`, `/media/`, `/fonts/` cache-eligible must stay on, or every preload is
+  served by the VPS (470–820 MB per player).
+
+`node --test test/resources.test.js` covers the path rules (and the worker's copy of them), the manifest and its HTTP
+route, the store against an in-memory Cache Storage (download, resume, changed files, bad checksum, abort, full disk,
+removing a pack), the worker's answers and its saving of fetched files, and the voice-pack default.
 
 ## Licensing and credits
 

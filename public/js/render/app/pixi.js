@@ -1,7 +1,9 @@
 // public/js/render/app/pixi.js — load PIXI and pixi-spine once (one module-level promise).
 import { runtimeURL } from '../../runtime.js';
 
-const VENDOR = { pixi: '/vendor/pixi.min.js', spine: '/vendor/pixi-spine.js' };
+import { genUrl } from '../../gen.js';
+
+const VENDOR = { pixi: genUrl('/vendor/pixi.min.js'), spine: genUrl('/vendor/pixi-spine.js') };
 
 let pixiPromise = null;
 
