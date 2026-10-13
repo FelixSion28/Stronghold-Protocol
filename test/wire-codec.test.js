@@ -27,7 +27,7 @@ test('v1 complete catalog fingerprint prevents accidental published field or enu
 
 test('wire ids cover every business message and C2S field; registries are immutable', () => {
   const messages = wireCatalog().messages;
-  assert.deepEqual(messages.filter((m) => m.direction === 's2c').map((m) => m.type).sort(), S2C.filter(t => !['sys.notice', 'sys.retire', 'sys.online', 'queue.state'].includes(t)).sort());
+  assert.deepEqual(messages.filter((m) => m.direction === 's2c').map((m) => m.type).sort(), S2C.filter(t => !['sys.notice', 'sys.retire', 'sys.online', 'queue.state', 'm.layer'].includes(t)).sort());
   assert.deepEqual(messages.filter((m) => m.direction === 'c2s').map((m) => m.type).sort(), Object.keys(C2S).filter(t => !['room.outfits', 'room.search', 'queue.join', 'queue.leave', 'queue.ai', 'g.bondCall'].includes(t)).sort());
   assert.equal(new Set(messages.map((m) => m.id)).size, messages.length);
   for (const m of messages.filter((m) => m.direction === 'c2s')) {
@@ -131,7 +131,7 @@ function noPublicExtensions(message) {
     if (v == null) return;
     const known = new Set(fields.map(nameOf));
     for (const k of Object.keys(v)) assert.ok(k === 't' || known.has(k)
-      || (path === 'm.public' && k === 'timerScale')
+      || (path === 'm.public' && ['timerScale', 'bossPairs'].includes(k))
       || (fields === WIRE_RECORDS.card && k === 'soldOut'), `${path}.${k} needs an explicit position or declared v1 extension`);
     for (const field of fields) if (typeof field !== 'string' && Object.hasOwn(v, field[0])) {
       const [key, type] = field;
@@ -141,6 +141,16 @@ function noPublicExtensions(message) {
   }
   record(message, WIRE_MESSAGES.find((m) => m[1] === 'm.public')[3], 'm.public');
 }
+
+test('v0.2.5 bond cues use JSON fallback and random boss pairs use the unchanged v1 extension bit', () => {
+  const cue = { t: 'm.layer', playerId: 'p20', bondId: 'yanShip', add: 3 };
+  assert.deepEqual(encodeWire(cue, 's2c'), cue);
+  assert.deepEqual(roundTrip(cue, 's2c'), cue);
+  const publicMessage = { t: 'm.public', phase: PHASE.FINAL_ASSAULT,
+    bossPairs: Array.from({ length: 10 }, (_, i) => ({ players: ['p' + (i + 1), 'p' + (20 - i)] })) };
+  noPublicExtensions(publicMessage);
+  assert.deepEqual(roundTrip(publicMessage, 's2c'), publicMessage);
+});
 
 test('v0.2.4 stock, prep medics and zero coins retain v1 extension semantics', () => {
   const publicMessage = { t: 'm.public', sp: {

@@ -6,8 +6,8 @@
 //
 // Driving (units.js calls these; the sim is authoritative, the actor only visualises):
 //   setBase('idle'|'move'|'stun')        the resting state from the snapshot anim code
-//   attack(interval, once)                one attack happened now (b.ev 'atk'): plays begin→loop, re-phases the loop
-//                                         so its OnAttack frame lands now, timeScale = loopDuration / interval;
+//   attack(interval, once)                one attack happened now (b.ev 'atk'): consumes its wind-up or starts at
+//                                         OnAttack, once; operator timeScale = loopDuration / interval;
 //                                         `once` (a one-off cast, style.js PROJ[kind].once — 暴鸰's bomb drop): the
 //                                         clip plays once at its own speed, then base; `clipPerAttack` (enemies,
 //                                         GitHub #58): every attack plays the clip once — at its own speed, faster
@@ -33,8 +33,7 @@
 //   update(dt)                            advances the skeleton (autoUpdate is off: one clock for everything)
 //   poseHeld()                            true while the pose cannot change (render/units.js then neither re-poses nor
 //                                         redraws the model, only advances `clock`)
-// Attack mode lasts until ~1.4 attack intervals without a new attack (a `once` cast and every attack of a
-// `clipPerAttack` actor: to the end of its clip), then the end clip (if any) and base — except the attacks of a skill
+// Each attack plays its clip once, then the end clip (if any) and base — except the attacks of a skill
 // with its own idle clip, which go straight back to that idle: the skill's end clip closes the skill, not each spell of
 // attacks while it runs.
 
@@ -190,7 +189,7 @@ export class SpineActor {
     /**
      * Enemies (render/units.js, GitHub #58): each attack plays the attack clip once — at its own speed, faster only when
      * the attacks come quicker than the clip — and then the resting state; the sim stands the enemy for exactly that
-     * clip (server/sim/ai.js attackStand). Off (operators): the clip loops over the attack rhythm.
+     * clip (server/sim/ai.js attackStand). Off (operators): retain rhythm scaling, but still play each attack once.
      */
     this.clipPerAttack = false;
     this.wound = false;           // clipPerAttack: wound up for the coming attack (windUp → attack)
@@ -405,10 +404,9 @@ export class SpineActor {
     if (this.dead || this.mode === 'stun' || this.mode === 'die' || this.mode === 'change' || !(lead >= 0)) return false;
     const clip = this._attackClip();
     if (!clip) return false;
-    const single = once || this.clipPerAttack;
     const loop = this._shot(clip.loop);
     // in rhythm: attack() re-phases; a clip-per-attack actor starts each attack's clip anew unless already wound up for it
-    if (this.mode === 'attack' && this.current === loop && (!this.clipPerAttack || once || this.wound)) return false;
+    if (this.mode === 'attack' && this.current === loop && (once || this.wound)) return false;
     const loopDur = this.dur(loop);
     // a one-off cast plays at the clip's own speed (one loop per clip length), whatever the attack rhythm
     const iv = once ? loopDur : clampN(Number.isFinite(interval) && interval > 0 ? interval : this.interval, 0.08, 8);
@@ -418,8 +416,8 @@ export class SpineActor {
     if (!(hit > 0) || lead * plan.ts > hit + 1e-6) return false;
     if (!once) this.interval = iv;
     this.mode = 'attack';
-    this.attackUntil = this.clock + lead + (single ? Math.max(0, loopDur - hit) / plan.ts : Math.max(0.45, iv * 1.4));
-    this._play(loop, !single, { timeScale: plan.tsWind, start: plan.start, mix: 0.06 });
+    this.attackUntil = this.clock + lead + Math.max(0, loopDur - hit) / plan.ts;
+    this._play(loop, false, { timeScale: plan.tsWind, start: plan.start, mix: 0.06 });
     this.windTs = plan.ts;
     this.windUntil = this.clock + lead;
     this.wound = true;
@@ -438,14 +436,13 @@ export class SpineActor {
     const loop = this._shot(clip.loop);
     const loopDur = this.dur(loop);
     const per = this.clipPerAttack && !once;
-    const single = once || per;
     // clip per attack: its own speed (ts 1), faster only when the attacks come quicker than the clip
     const ts = once ? 1 : per ? clampN(loopDur / Math.min(this.interval, loopDur), 1, 4) : clampN(loopDur / this.interval, 0.35, 4);
     const hit = this._hitTime(loop, loopDur);
     // (a clip-per-attack actor still playing the previous attack's clip was not wound up for this one)
-    const wasAttacking = this.mode === 'attack' && this.current === loop && (!per || this.wound);
+    const wasAttacking = this.mode === 'attack' && this.current === loop && this.wound;
     this.mode = 'attack';
-    this.attackUntil = this.clock + (single ? Math.max(0, loopDur - hit) / ts : Math.max(0.45, this.interval * 1.4));
+    this.attackUntil = this.clock + Math.max(0, loopDur - hit) / ts;
     this.windUntil = null;
     this.wound = false;
     if (!wasAttacking) {
@@ -455,19 +452,19 @@ export class SpineActor {
       // lifts before the slam; #246 by @TsangAsuna, accepted by the owner on 2026-10-07)
       const whole = per && this.interval >= loopDur;
       if (whole) this.attackUntil = this.clock + loopDur / ts;
-      this._play(loop, !single, { timeScale: ts, start: whole ? 0 : hit, mix: 0.06 });
-    } else if (single) {
-      const e = this.spine.state.tracks[0];
-      if (e) e.timeScale = ts;
+      this._play(loop, false, { timeScale: ts, start: whole ? 0 : hit, mix: 0.06 });
     } else {
       const e = this.spine.state.tracks[0];
       if (e) {
         e.timeScale = ts;
-        // re-phase gently so the strike frame lines up with this attack
-        const t = e.trackTime % loopDur;
-        let d = hit - t;
-        if (d > loopDur / 2) d -= loopDur; else if (d < -loopDur / 2) d += loopDur;
-        e.trackTime += d * 0.8;
+        // Preserve operator hit-phase correction when a coarse/batched update crossed windUntil.
+        // This adjusts the prepared single clip; it does not start another visual swing.
+        if (!once && !per) {
+          const t = e.trackTime % loopDur;
+          let d = hit - t;
+          if (d > loopDur / 2) d -= loopDur; else if (d < -loopDur / 2) d += loopDur;
+          e.trackTime += d * 0.8;
+        }
       }
     }
   }
