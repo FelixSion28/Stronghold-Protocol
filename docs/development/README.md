@@ -24,6 +24,12 @@
 
 ## Felix 当前整合基线
 
+2026-10-13 分支整理：本地 `master` 已对齐原作者 `sganggs/Stronghold-Protocol` 的最新 master `cf7a9400270d5aa79b2e601e405dab782e25f120`（0.2.5），跟踪 `upstream/master`。原有 0.2.4、20 人、Yuri、计时、公告及全部维护记录保存在当前 `feat/felix-customizations`；后续定制开发继续在该分支进行。GitHub `origin/master` 本次未修改，服务器未部署。规则见 [D025](DECISIONS.md#d025--本地主线与定制分支分离)，验证见 [DEV-20261013-02](records/2026-10-13-02-branch-separation.md)。
+
+2026-10-13 罗德岛 MOD：已完成来源 `Rhodes-Mod v1.7.1` 的本地移植方案，核对固定组升变记账、可复现数据生成、运行时版本开关及 Yuri 外观边界；当前仅调查，没有合并游戏源码或部署。推荐步骤与验收见 [DEV-20261013-01](records/2026-10-13-01-rhodes-integration-plan.md)。
+
+2026-10-12 HTTPS 入口：现有 Nginx 已加载独立 TLS 反向代理，游戏容器及对局保持运行；公网普通域名连接在 TLS SNI 握手时被重置。用户最终确认 ICP 备案尚在申请、未通过，公开域名验收待审批及接入完成。证书校验、诊断 WSS、运行前后标识和后续接入检查见 [DEV-20261012-03](records/2026-10-12-03-https-entry.md)。
+
 2026-10-12 后续：已合入 YuriRestia `dev-0.2` / `ee97ff3c`，实现 `ed3e0e9` 已同步 Felix master 并部署 3000（build=`a6dd57e9069b`）。时装、伤害统计、盟约意向与匹配已按二十人分支边界适配；完整 CI 与 Edge 检查通过。规则见 [D024](DECISIONS.md#d024--yurirestia-功能与本分支边界)，素材、部署及回滚证据见 [DEV-20261012-02](records/2026-10-12-02-yuri-merge.md)。下文 v0.2.4 是本次之前的基线。
 
 2026-10-12：Felix master 已合入正式 v0.2.4 `bc50cac0`，合并提交 `8ddf6d1` 已同步远端；本地代码、依赖、素材及服务器 3000 均为 0.2.4，保留二十人固定组和计时调整。3001 保持原版本。验证结果、默认并行 CI 的时序限制及回滚证据见 [DEV-20261012-01](records/2026-10-12-01-upstream-v024.md)。
