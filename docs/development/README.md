@@ -24,6 +24,8 @@
 
 ## Felix 当前整合基线
 
+2026-10-13 炎佑调查：首领战本方优先索敌按用户指定的出生归属分析，现有 ownerId 可作为主要依据；需统一移动、普通攻击和喷火选目标，并核对子单位继承与技能锁定边界。仅分析，尚未实施，详见 [DEV-20261013-04](records/2026-10-13-04-yanyou-boss-targeting-analysis.md)。
+
 2026-10-13 定制版升级：`feat/felix-customizations` 以 `21eaced4` 合入正式 v0.2.5 `cf7a9400`，保留二十人固定组、Yuri、阶段倍率、公告及缓存；master 仍为作者原版。后续 `9e915567` 补齐场景二进制缓存兼容，已部署 3000（build=`e5d35c98b4e0`），3001 原容器保持不变。11 个官方场景与新版棋盘贴图完整，缓存 22,119 个文件无缺项。合并取舍、66 个黄金场景的上游变化、CI 覆盖与部署 / 回滚证据见 [DEV-20261013-03](records/2026-10-13-03-upstream-v025.md)。
 
 2026-10-13 分支整理：本地 `master` 已对齐原作者 `sganggs/Stronghold-Protocol` 的最新 master `cf7a9400270d5aa79b2e601e405dab782e25f120`（0.2.5），跟踪 `upstream/master`。原有 0.2.4、20 人、Yuri、计时、公告及全部维护记录保存在当前 `feat/felix-customizations`；后续定制开发继续在该分支进行。GitHub `origin/master` 本次未修改，服务器未部署。规则见 [D025](DECISIONS.md#d025--本地主线与定制分支分离)，验证见 [DEV-20261013-02](records/2026-10-13-02-branch-separation.md)。
