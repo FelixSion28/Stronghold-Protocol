@@ -15,7 +15,7 @@ export const ASSET_CACHE_MIME = Object.freeze({
   '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
   '.atlas': 'text/plain; charset=utf-8', '.obj': 'text/plain; charset=utf-8',
-  '.skel': 'application/octet-stream',
+  '.skel': 'application/octet-stream', '.bin': 'application/octet-stream',
 });
 
 /** Canonical URLs are decoded paths, never queries, external URLs or executable resources. */

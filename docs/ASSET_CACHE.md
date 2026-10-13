@@ -47,6 +47,8 @@ Service Worker 接管页面后，已缓存且匹配当前清单的素材直接�
 
 先安装当前版本需要的素材、字体及可选本地提取素材，并核对 `data/assets.json`、`data/local-assets.json`。召唤物补充素材位于 `public/assets/local/spine/token/`，对应清单必须随素材同步。打包工具还会跟踪 Spine 图集贴图及棋盘运行时依赖，完整包不会仅凭目录总大小判断是否完整。
 
+v0.2.5 的官方场景包含 `scene.json`、几何二进制 `scene.bin`、光照图及共享贴图。清单中的 `.bin` 与模型二进制一样按大小和 SHA-256 校验，支持完整包导入、在线补齐与 Service Worker 命中；更新时须同时安装场景文件和本地清单。
+
 在项目根目录执行：
 
 ```bash

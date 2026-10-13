@@ -48,6 +48,22 @@ test('missing and invalid declarations are reported without exposing absolute fi
   assert.ok(!JSON.stringify(catalog).includes('/api/announcement-assets'));
 });
 
+test('official scene binaries enter a complete catalog accepted by the browser', async (t) => {
+  const url = '/assets/local/scene/act1autochess_m01/scene.bin';
+  const f = await fixture(t, {}, { groups: { 'scene/act1autochess_m01': { bin: { path: url } } } });
+  const bytes = Buffer.from([0, 255, 17, 42]);
+  await f.put(url, bytes);
+  const catalog = await createAssetCacheCatalog(f);
+  assert.equal(catalog.complete, true);
+  assert.deepEqual(catalog.missing, []);
+  assert.equal(catalog.files[0].type, 'application/octet-stream');
+  assert.equal(catalog.files[0].sha256, createHash('sha256').update(bytes).digest('hex'));
+  assert.doesNotThrow(() => validateAssetCatalog(catalog));
+  assert.equal(catalogURLMap(catalog).get(url).bytes, bytes.length);
+  await fs.unlink(path.join(f.publicDir, url.slice(1)));
+  assert.deepEqual((await createAssetCacheCatalog(f)).missing, [{ url, reason: 'missing file' }]);
+});
+
 test('media aliases match extension-less and explicit-extension priority/fallback', async (t) => {
   const f = await fixture(t, { audio: ['/assets/audio/bgm/track.ogg', '/assets/audio/bgm/track.mp3'] });
   await f.put('/assets/audio/bgm/track.ogg', 'ogg'); await f.put('/assets/audio/bgm/track.mp3', 'mp3');
