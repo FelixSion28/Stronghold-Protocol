@@ -898,6 +898,12 @@ instance) and skip `'counter'` / `'reflect'` damage. When the guard trips, the l
 
 ## 6. Engine helpers (content must use these)
 
+`targeting.js` also provides `spawnOwnerRank(battle, attacker, enemy)` for 炎佑's `ownSpawn` priority on paired
+boss/hidden fields (maintainer rule DEV-20261013-05). It compares spawn-accounting owners, never current coordinates;
+missing attacker ownership, other field kinds and single-player fields have no preference. `sortEnemyTargets` applies
+it only for the explicit priority. 炎佑 uses it in whole-field movement tracking too and passes the same priority when
+starting its flame lock. Existing range/targetability and ongoing locks are preserved; see [engine §5.5](design/engine.md#55-combat-rules-engine).
+
 | helper | notes |
 |---|---|
 | `dealDamage(src, tgt, dmg)`, `heal(src, tgt, amount, opts)`, `loseHp(tgt, amount, {source, from, tags, sourceless})` | §4 |

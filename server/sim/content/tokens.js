@@ -89,7 +89,7 @@
 // kits/ops/standin-acmedc.js).
 
 import { COLS, ROWS, MOVE_SCALE, FORCED_EXIT } from '../constants.js';
-import { absoluteRangeKeys, sortEnemyTargets, canTargetEnemy } from '../targeting.js';
+import { absoluteRangeKeys, sortEnemyTargets, canTargetEnemy, spawnOwnerRank } from '../targeting.js';
 import { bodyInKeys, bodyOnTile } from '../body.js';
 import { hasHp } from '../damage.js';
 import { genericKit } from './generic.js';
@@ -1211,6 +1211,8 @@ function yanyouFallbackDef(battle) {
  *     locked target) and hovers over it (YANYOU_STOP short of its position; a 2nd 炎佑 of 9 炎 hovers 0.8 row beside the
  *     first); with no enemy on the field it stays where it is (user playtest #4: "停留在最后在的位置，而不是往一个固定位置
  *     返回"; PRTS says it then tracks a random tile — the user's first-hand account wins);
+ *     maintainer override DEV-20261013-05: paired boss/hidden fields prefer enemies with the same spawn owner before
+ *     aggro, for tracking, normal attacks and initial flame lock; an ongoing valid flame lock is kept;
  *   * normal attack: rangeRadius 2.0, arts, 3 targets ("可同时攻击3个目标", talent 1.attack@max_target);
  *   * every damage it deals adds burn = ATK × 2.ep_damage_ratio (20 %: "自身造成伤害时，附加攻击力20%的灼燃损伤"; the
  *     official 下半 notice: "祛恶之焰附带的灼燃损伤调整为基于炎佑的攻击力") — normal attacks AND flame ticks;
@@ -1229,15 +1231,17 @@ function yanyouFallbackDef(battle) {
 const YANYOU_STOP = 0.25;             // [ASSUMED] how close it hovers to the tracked enemy (tiles)
 const YANYOU_FRAGILE_RADIUS = 1.5;    // PRTS "在场期间自身<!--固定半径-->半径1.5范围内的敌方单位受到20%的元素脆弱"
 const YANYOU_AURA_EVERY = 0.2;        // aura refresh period (s); the status lasts two periods
-const YANYOU_PROFILE = Object.freeze({ canHitFly: true });
+// Maintainer rule DEV-20261013-05: own spawn ownership first on paired boss/hidden fields; other fields unchanged.
+const YANYOU_PROFILE = Object.freeze({ canHitFly: true, priority: 'ownSpawn' });
 
-/** Highest-aggro targetable enemy of the whole field for `u` (operator order, targeting.js sortEnemyTargets). */
+/** Whole-field tracking: the same owner preference as attacks, then the existing aggro order. */
 function topAggroEnemy(battle, u) {
-  let best = null, bk = null;
+  let best = null, bk = null, br = 0;
   for (const e of battle.enemies) {
     if (!canTargetEnemy(u, e, YANYOU_PROFILE)) continue;
     const k = [-(e.s.taunt || 0), battle.remainingDistance(e), e.spawnSeq];
-    if (!bk || k[0] < bk[0] || (k[0] === bk[0] && (k[1] < bk[1] - 1e-9 || (Math.abs(k[1] - bk[1]) <= 1e-9 && k[2] < bk[2])))) { best = e; bk = k; }
+    const rank = spawnOwnerRank(battle, u, e);
+    if (!bk || rank < br || (rank === br && (k[0] < bk[0] || (k[0] === bk[0] && (k[1] < bk[1] - 1e-9 || (Math.abs(k[1] - bk[1]) <= 1e-9 && k[2] < bk[2])))))) { best = e; bk = k; br = rank; }
   }
   return best;
 }
@@ -1285,7 +1289,7 @@ function yanyouKit(bb, raw) {
       onStart({ battle, unit }) {
         // "触发索敌和普通攻击相同": the normal attack's first target
         const list = battle.enemiesInKeys(unit.rangeKeys, unit, YANYOU_PROFILE);
-        sortEnemyTargets(battle, unit, list, null);
+        sortEnemyTargets(battle, unit, list, YANYOU_PROFILE.priority);
         unit.mem.flame = { target: list[0] ?? null, acc: 1 };
         if (!list[0]) unit.skill.end('noTarget');
       },
@@ -1307,7 +1311,7 @@ function yanyouKit(bb, raw) {
       },
       onEnd({ unit }) { unit.mem.flame = null; },
     } : null,
-    trait: { attack: 'ranged', dmgType: 'arts', projectile: 'bolt', canHitFly: true, maxTargets, heal: null, noAttack: false },
+    trait: { attack: 'ranged', dmgType: 'arts', projectile: 'bolt', ...YANYOU_PROFILE, maxTargets, heal: null, noAttack: false },
     install(battle, unit) {
       unit.motion = 'FLY';
       if (!(unit.base.spRecovery > 0)) unit.base.spRecovery = 1; // the cooldown ticks as time SP (data spRecovery 0)

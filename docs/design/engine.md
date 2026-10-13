@@ -130,6 +130,15 @@ Engine helpers (content must use these, never touch internals): `battle.dealDama
 
 ### 5.5 Combat rules (engine)
 
+- **炎佑, paired boss / hidden fields (maintainer rule, DEV-20261013-05)**: movement tracking, normal attack
+  selection and initial 祛恶之焰 lock prefer enemies with the same spawn-accounting `ownerId`. Within each ownership
+  group the existing taunt → remaining route distance → spawn order stays unchanged. Tracking searches the whole
+  field; attacks and initial flame locks remain range-limited. Other owners can fill the three-target attack or supply
+  a target when no own candidate is available. Crossing/portals do not change ownership; split/rebirth inheritance
+  follows the existing spawn rules. A valid ongoing flame lock is kept. Normal/unite and single-player fields retain
+  their existing targeting, as do all other attackers. This is a deliberate customization of PRTS's whole-field aggro
+  rule, authorized on 2026-10-13; see [the decision and validation record](../development/records/2026-10-13-05-yanyou-boss-own-targets.md).
+
 - **Prepared 外勤医疗 slot**: 预备干员-医疗 is visible on the field during preparation. At `battleStart`, the elite count
   chooses either that medic or its Touch replacement for the same slot. [ASSUMED] This replacement does not move the
   slot behind the ordinary starting operators in effective deployment priority: both variants receive an earlier
