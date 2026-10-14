@@ -1457,6 +1457,13 @@ Unknown subprofessions fall back to the profession default (test `professions.te
 
 ## 10. Testing content (test/helpers/battleHarness.js)
 
+For 炎佑's spawn-owner priority, `test/content/yanyou-boss-targeting.test.js` covers selection, disappearance /
+reappearance, targetability changes and channel locks. `test/content/yanyou-boss-waves.test.js` audits four real
+炎佑 tokens on all ten production boss templates for 80 game seconds each; these injected summons are not a full
+player match. The browser counterpart is `test/sim/yanyou-owner.browser.test.js` (`SIM_E2E=1`, `CHROME_PATH`).
+Set `SP_SIM_TEST_URL` to an existing server origin to test its served sim/data instead of starting a local server;
+it runs BattleSpecs in the test browser, without creating rooms or reporting match results to that server.
+
 ```js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
