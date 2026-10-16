@@ -5,6 +5,8 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { AUDIO_EXTS, MEDIA_PREFIX } from '../shared/media.js';
+import { hashedPath, splitHashedPath } from '../shared/assetPaths.js';
+import { rewriteManifest } from './http/assetViews.js';
 
 export const ASSET_CACHE_SCHEMA = 1;
 export const ASSET_CACHE_MIME = Object.freeze({
@@ -125,7 +127,7 @@ export async function createAssetCacheCatalog({ publicDir, dataDir, app, concurr
       return null;
     }
   };
-  const [standard, local] = await Promise.all([readManifest('assets.json', false), readManifest('local-assets.json', true)]);
+  const [standard, local, fx] = await Promise.all([readManifest('assets.json', false), readManifest('local-assets.json', true), readManifest('local-fx.json', true)]);
   const modelAtlases = new Set();
   collectModelAtlases(standard, modelAtlases);
   // Optional runtime token/enemy models are reconstructed from local groups by spineEntry.
@@ -256,7 +258,28 @@ export async function createAssetCacheCatalog({ publicDir, dataDir, app, concurr
       resolved?.aliases.push(MEDIA_PREFIX + stem + ext);
     }
   }
-  for (const file of files) file.aliases.sort();
+  // The 0.3.0 served manifests share a model hash across its skeleton, atlas and textures.
+  // Derive the same URLs from the verified catalog bytes, retaining the existing SHA-256 cache and worker.
+  const index = {
+    hashOf: (rel) => byURL.get('/' + rel)?.sha256.slice(0, 16) || null,
+    modelHash(rels) {
+      const hashes = rels.map((rel) => this.hashOf(rel));
+      return hashes.every(Boolean) ? createHash('sha256').update(hashes.join('\n')).digest('hex').slice(0, 16) : null;
+    },
+  };
+  const addHashed = (node) => {
+    if (typeof node === 'string') {
+      const split = splitHashedPath(node);
+      if (split.hash) byURL.get(split.path)?.aliases.push(node);
+    } else if (node && typeof node === 'object') for (const value of Object.values(node)) addHashed(value);
+  };
+  for (const [name, doc] of [['assets.json', standard], ['local-assets.json', local], ['local-fx.json', fx]]) {
+    if (doc) addHashed(rewriteManifest(doc, name, index).doc);
+  }
+  for (const file of files) {
+    file.aliases.push(hashedPath(file.url, file.sha256.slice(0, 16)), ...file.aliases.filter((url) => url.startsWith(MEDIA_PREFIX)).map((url) => hashedPath(url, file.sha256.slice(0, 16))));
+    file.aliases = [...new Set(file.aliases)].sort();
+  }
   const version = createHash('sha256').update(JSON.stringify({ schema: ASSET_CACHE_SCHEMA, files })).digest('hex');
   if (app === undefined) {
     try { app = JSON.parse(await fsp.readFile(path.join(publicDir, '..', 'package.json'), 'utf8')).version; }

@@ -4,6 +4,10 @@
 /** A searching room never changes the capacity its host picked. */
 export const roomCapacity = room => room.capacity ?? room.seats.length;
 
+/** Rooms merge only when gameplay, cosmetic and mode choices agree. */
+export const roomContentKey = room => JSON.stringify([room.content?.cs ?? null, room.content?.vs ?? null,
+  room.content?.modeId ?? null, room.content?.plugins ?? []]);
+
 export const MATCH_DEFAULTS = Object.freeze({
   matchTickMs: 2000,
   partialMergeAfterMs: 10_000, // 0 = exact fills only
@@ -20,6 +24,8 @@ export function groupReady(room) {
   for (const s of room.seats) {
     if (!s || s.isBot || s.left) continue;
     if (!s.connected) return false;
+    if (room.content?.vanilla === false && s.content !== 'ready') return false;
+    if (room.content?.trusted && s.consentCs !== room.content.cs) return false;
     if (s.playerId !== room.hostId && !s.ready) return false;
   }
   return true;
@@ -43,8 +49,9 @@ export function planMerges(rooms, now, { partialMergeAfterMs = MATCH_DEFAULTS.pa
   const buckets = new Map();
   for (const r of rooms) {
     if (!isMatchable(r)) continue;
-    if (!buckets.has(`${r.difficulty}:${roomCapacity(r)}:${r.timerScale ?? 1}`)) buckets.set(`${r.difficulty}:${roomCapacity(r)}:${r.timerScale ?? 1}`, []);
-    buckets.get(`${r.difficulty}:${roomCapacity(r)}:${r.timerScale ?? 1}`).push({ room: r, size: roomSize(r), since: r.searchSince ?? now });
+    const key = `${r.difficulty}:${roomCapacity(r)}:${r.timerScale ?? 1}:${roomContentKey(r)}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push({ room: r, size: roomSize(r), since: r.searchSince ?? now });
   }
   const plans = [];
   for (const list of buckets.values()) {

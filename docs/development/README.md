@@ -2,11 +2,15 @@
 
 本目录最初来自 LongQianChen 的 `feat/IncreasePlayerCapacity` 分支，保存开发的需求、决定、实现依据、验证结果和后续工作。2026-10-10 合入 FelixSion28 的 master；来源分支的历史状态与路径保留在原记录中，Felix 当前整合状态见 [DEV-20261010-12](records/2026-10-10-12-felix-capacity-merge.md)。上游原有文档保持现有路径；今后的分支开发记录集中写在这里。
 
-## 当前发行分支
+## 当前 0.3.0 维护基线
+
+2026-10-16：master 已快进至作者正式 v0.3.0 c24e17ee，定制分支 feat/felix-customizations 与炎佑分支分别完成上游升级。新的发行整合目标为 release/v0.3.0；旧 release/v0.2.5 和升级前保护分支保留。兼容取舍、实际检查及素材限制见 [DEV-20261016-02](records/2026-10-16-02-upstream-v030.md)。只更新本地，未推送或部署。
+
+## v0.2.5 历史发行整合
 
 2026-10-16：当前整合分支为 `release/v0.2.5`，保留官方 v0.2.5 基线、二十人固定组、Yuri、阶段倍率、文件公告和统一素材缓存，并合入炎佑出生归属优先索敌及既有测试和验证记录。来源为 `feat/felix-customizations` / `b10db775` 与 `feat/yanyou-boss-own-targets` / `1deb8d78`，原分支和 master 均保留。按用户要求不再进行后续验证。本次仅本地整合，线上 3000 / 3001 仍是先前各自版本。
 
-范围与合并验证见 [DEV-20261016-01](records/2026-10-16-01-release-v025.md)，决定见 [D029](DECISIONS.md#d029--v025-发行分支整合)。索敌实现、3001 测试和扩展验证分别见 [DEV-20261013-05](records/2026-10-13-05-yanyou-boss-own-targets.md)、[DEV-20261014-01](records/2026-10-14-01-yanyou-3001-test.md)、[DEV-20261014-02](records/2026-10-14-02-yanyou-targeting-audit.md)。下文历史条目描述各任务当时的状态，以本段作为当前整合入口。
+范围与合并验证见 [DEV-20261016-01](records/2026-10-16-01-release-v025.md)，决定见 [D029](DECISIONS.md#d029--v025-发行分支整合)。索敌实现、3001 测试和扩展验证分别见 [DEV-20261013-05](records/2026-10-13-05-yanyou-boss-own-targets.md)、[DEV-20261014-01](records/2026-10-14-01-yanyou-3001-test.md)、[DEV-20261014-02](records/2026-10-14-02-yanyou-targeting-audit.md)。下文历史条目描述各任务当时的状态，本段仅描述此前 0.2.5 整合状态。
 
 ## 接手时先看什么
 

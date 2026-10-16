@@ -146,8 +146,8 @@ test('package: the full zip ships the JP dub by default; FULL_ZIP_JP_VOICE off h
   assert.match(src, /removable: \(rel\) => !removalProblem\(rel\) && !heldBack\.has\(rel\)/);
 });
 
-test('package: FULL_ZIP_OPTIONAL_VOICE ships the voice picker\'s EN / KR / own-language dubs by default; off holds them back like the JP switch', () => {
-  assert.equal(FULL_ZIP_OPTIONAL_VOICE, true);
+test('package: FULL_ZIP_OPTIONAL_VOICE ships the EN / KR / own-language dubs by default; off holds them back (not missing, not orphans)', () => {
+  assert.equal(FULL_ZIP_OPTIONAL_VOICE, true, '0.3.0 ships these dubs in the full zip');
   assert.deepEqual([...OPTIONAL_VOICE_DIRS], ['public/assets/audio/voice/en/', 'public/assets/audio/voice/kr/', 'public/assets/audio/voice/native/']);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sp-voiceopt-'));
   try {
@@ -163,10 +163,10 @@ test('package: FULL_ZIP_OPTIONAL_VOICE ships the voice picker\'s EN / KR / own-l
     fs.writeFileSync(path.join(dir, 'data', 'assets.json'), JSON.stringify({ audio: { voice: tree(rel.cn), voiceJp: tree(rel.jp),
       voiceEn: tree(rel.en), voiceKr: tree(rel.kr), voiceNative: tree(rel.native), voiceNativeLangType: { char_102_texas: 'ITA' } } }));
     const on = artPlan(dir);
-    assert.deepEqual(on.files, Object.values(rel).sort(), 'every dub ships');
+    assert.deepEqual(on.files, Object.values(rel).sort(), 'every dub ships by default');
     assert.deepEqual([on.held, on.missing, on.orphans], [[], [], []]);
     const off = artPlan(dir, { optionalVoice: false });
-    assert.deepEqual(off.files, [rel.cn, rel.jp].sort(), 'the picker\'s dubs stay out; master\'s JP is its own switch');
+    assert.deepEqual(off.files, [rel.cn, rel.jp].sort(), 'JP stays; the extra dubs stay out');
     assert.deepEqual(off.held, [rel.en, rel.kr, rel.native].sort(), 'held back on purpose');
     assert.deepEqual([off.missing, off.orphans], [[], []], 'neither missing nor orphans');
     assert.deepEqual(artPlan(dir, { jpVoice: false, optionalVoice: false }).files, [rel.cn], 'both switches off: the Chinese dub only');
