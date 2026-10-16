@@ -46,6 +46,9 @@ describe('a room\'s content set in the browser (P1c)', { skip: !ENABLED && 'set 
       await host.click('.diff-card', '标准模拟');
       await host.click('.create-box button', '创建同盟');
       const code = (await host.waitFor((s) => !!s.room?.code, 'room created')).room.code;
+      // This fork forwards the room's timerScale into its child, ahead of host defaults. Accelerate
+      // the test room itself so the unattended drafts use the intended test-only 0.1 scale too.
+      srv.lobby.getRoom(code).timerScale = 0.1;
       await guest.open();
       await guest.enter('阿米娅');
       await guest.click('.join-row input');
