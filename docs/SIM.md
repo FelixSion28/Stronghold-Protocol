@@ -898,6 +898,12 @@ instance) and skip `'counter'` / `'reflect'` damage. When the guard trips, the l
 
 ## 6. Engine helpers (content must use these)
 
+`targeting.js` also provides `spawnOwnerRank(battle, attacker, enemy)` for 炎佑's `ownSpawn` priority on paired
+boss/hidden fields (maintainer rule DEV-20261013-05). It compares spawn-accounting owners, never current coordinates;
+missing attacker ownership, other field kinds and single-player fields have no preference. `sortEnemyTargets` applies
+it only for the explicit priority. 炎佑 uses it in whole-field movement tracking too and passes the same priority when
+starting its flame lock. Existing range/targetability and ongoing locks are preserved; see [engine §5.5](design/engine.md#55-combat-rules-engine).
+
 | helper | notes |
 |---|---|
 | `dealDamage(src, tgt, dmg)`, `heal(src, tgt, amount, opts)`, `loseHp(tgt, amount, {source, from, tags, sourceless})` | §4 |
@@ -1450,6 +1456,13 @@ Unknown subprofessions fall back to the profession default (test `professions.te
 ---
 
 ## 10. Testing content (test/helpers/battleHarness.js)
+
+For 炎佑's spawn-owner priority, `test/content/yanyou-boss-targeting.test.js` covers selection, disappearance /
+reappearance, targetability changes and channel locks. `test/content/yanyou-boss-waves.test.js` audits four real
+炎佑 tokens on all ten production boss templates for 80 game seconds each; these injected summons are not a full
+player match. The browser counterpart is `test/sim/yanyou-owner.browser.test.js` (`SIM_E2E=1`, `CHROME_PATH`).
+Set `SP_SIM_TEST_URL` to an existing server origin to test its served sim/data instead of starting a local server;
+it runs BattleSpecs in the test browser, without creating rooms or reporting match results to that server.
 
 ```js
 import { test } from 'node:test';

@@ -194,12 +194,18 @@ const PRIORITY_FNS = {
 };
 
 /**
- * Sort candidate enemies for an attacker (in place) and return them: the enemies it blocks first (the user's rule after
- * playtest #6, "阻挡了就一定要能打到", for every blocker — DESIGN §20.3), then the special priority, taunt, the remaining
- * route, the spawn order. One exception, the owner's decision of 2026-10-08 (GitHub #220 by TsangAsuna, #205): the 速射手 air priority
- * (trait 优先攻击空中单位 — priority 'fly', a skill's too) comes before its own blocked enemy, so a 速狙 on a melee tile
- * blocking a ground enemy shoots the flyer in its range (PRTS 索敌的概念 「阻挡（近战限定）→特殊优先级→…」); every other
- * priority keeps the blocked enemy first.
+ * Maintainer rule (DEV-20261013-05): 炎佑 prefers its owner's spawn-accounting enemies on paired boss/hidden fields.
+ * The ownership stays fixed across movement/portals; split children keep the engine's existing inheritance.
+ * Missing ownership never establishes a match. Other battle kinds and solo fields retain the ordinary order.
+ */
+export function spawnOwnerRank(battle, attacker, enemy) {
+  if ((battle.kind !== 'boss' && battle.kind !== 'hidden') || battle.players.length < 2 || attacker.ownerId == null) return 0;
+  return enemy.ownerId === attacker.ownerId ? 0 : 1;
+}
+
+/**
+ * Sort candidates in place: ownSpawn (炎佑's paired boss rule), blocked enemies, special priority, taunt,
+ * remaining route, spawn order. 速射手's fly priority precedes its blocked enemy (owner decision GitHub #220/#205).
  * @param {object} attacker ally unit
  * @param {object[]} cands enemies
  * @param {string|null} priority profile/skill priority key
@@ -211,13 +217,14 @@ export function sortEnemyTargets(battle, attacker, cands, priority) {
   const ax = attacker.x, ay = attacker.y;
   const keyed = cands.map((e) => ({
     e,
+    o: priority === 'ownSpawn' ? spawnOwnerRank(battle, attacker, e) : 0,
     b: e.blockedBy === attacker ? 0 : 1,
     p: pf ? pf(e) : priority === 'nearest' ? bodyDist(e, ax, ay) : priority === 'farthest' ? -bodyDist(e, ax, ay) : 0,
     t: -(e.s.taunt || 0),
     d: battle.remainingDistance(e),
     s: e.spawnSeq,
   }));
-  keyed.sort((a, b) => (airFirst ? a.p - b.p : 0) || a.b - b.b || a.p - b.p || a.t - b.t || a.d - b.d || a.s - b.s);
+  keyed.sort((a, b) => a.o - b.o || (airFirst ? a.p - b.p : 0) || a.b - b.b || a.p - b.p || a.t - b.t || a.d - b.d || a.s - b.s);
   for (let i = 0; i < keyed.length; i++) cands[i] = keyed[i].e;
   return cands;
 }
