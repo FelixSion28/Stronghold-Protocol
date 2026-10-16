@@ -190,7 +190,9 @@ describe('match hosts in rooms (P1c): verification, the watchdog, crashes', () =
     c.id = w.playerId;
     return c;
   };
-  const ok = async (c, msg, timeout) => { const r = await c.request(msg, timeout); assert.equal(r.t, 'ok', `${msg.t}: ${JSON.stringify(r)}`); return r; };
+  // Allow content-set composition to finish on a cold Windows checkout. Watchdog assertions below
+  // still retain their own production deadlines and explicit 5/15 s request windows.
+  const ok = async (c, msg, timeout = 10_000) => { const r = await c.request(msg, timeout); assert.equal(r.t, 'ok', `${msg.t}: ${JSON.stringify(r)}`); return r; };
   /** A solo room with the plugin `id` switched on and checked by the host's page. */
   async function moddedRoom(srv, host, id, mode = 'solo') {
     await ok(host, { t: 'room.create', mode, difficulty: 'NORMAL' });
