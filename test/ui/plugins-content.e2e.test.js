@@ -36,6 +36,11 @@ describe('a room\'s content set in the browser (P1c)', { skip: !ENABLED && 'set 
       if (!h?.assetHashes || h.assetHashes.ready) break;
       await sleep(150);
     }
+    // This checkout's unified cache hashes all installed art on its first request. Warm that
+    // independent service before the pages' 15 s catalogue deadline; this test measures plugin gameplay.
+    const catalog = await fetch(`${srv.url}/api/asset-cache/catalog`);
+    assert.equal(catalog.status, 200);
+    await catalog.arrayBuffer();
     const P = (await import('puppeteer-core')).default;
     const host = new Client(P, srv.url, 'host', { prefix: 'plugins-content', w: 1600, h: 900 });
     const guest = new Client(P, srv.url, 'guest', { prefix: 'plugins-content', w: 1600, h: 900 });
