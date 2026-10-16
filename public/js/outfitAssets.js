@@ -11,6 +11,7 @@ export function outfitRec(m, id) {
 }
 
 export function outfitSpine(of, opts) {
+  if (!isObj(of)) return null;
   if (validSpine(of.spine)) return of.spine;               // a summon look: one model
   const sp = get(of, 'spine');
   const pick = (opts && opts.back && isObj(get(sp, 'back'))) ? sp.back : get(sp, 'front');

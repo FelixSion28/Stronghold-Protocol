@@ -62,5 +62,5 @@ export async function serveAnnouncementAsset(req, res, rawSuffix, announcements,
   if (!asset) { sendJson(req, res, 404, { error: 'ANNOUNCEMENT_ASSET_NOT_FOUND' }); return; }
   // Same-name images can be corrected while the server runs. Ignore query cache-busters so ?v never grants
   // immutable caching; ETag and Last-Modified still provide cheap revalidation and HEAD uses identical headers.
-  await serveFile(req, res, asset.file, asset.stat, 'announcement-assets', segments, '', gzipCache, log);
+  await serveFile(req, res, asset.file, asset.stat, 'announcement-assets', segments, '', gzipCache, log, { headRanges: true });
 }

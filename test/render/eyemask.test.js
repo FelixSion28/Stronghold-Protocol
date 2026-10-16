@@ -111,6 +111,8 @@ function syntheticData() {
 describe('the clip\'s cut on a synthetic skeleton (always runs)', () => {
   const at = (t, clip = false) => {
     const a = new SpineActor(syntheticData(), { anims: { idle: 'Idle' }, animations: { Idle: 4 } });
+    // Exercise the fallback itself; this fixture also has a weapon clip, forced on by this fork.
+    a.clipNeeded = false;
     a.setClipping(clip);
     a.update(t);
     return a;

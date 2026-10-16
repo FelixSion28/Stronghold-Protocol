@@ -362,6 +362,20 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
         tag: `rv-${version.hash}`, cacheControl: immutable, mtime: stat.mtime, cache: gzipCache });
       return;
     }
+    // Plugin content manifests retain upstream's short ?v= data URLs. Only the bytes named by that
+    // manifest get immutable caching; arbitrary queries and changed files remain revalidated.
+    if (mount.name === 'data' && segments.length === 1) {
+      const params = new URLSearchParams(query), v = params.get('v');
+      const entry = v && params.getAll('v').length === 1 ? vanillaContent().data[segments[0].replace(/\.json$/, '')] : null;
+      if (entry && v === entry.sha256.slice(0, 8)) {
+        const body = await fsp.readFile(absPath);
+        if (createHash('sha256').update(body).digest('hex') === entry.sha256) {
+          await serveBuffer(req, res, { body, hash: entry.sha256, type: MIME['.json'], cacheControl: immutable,
+            key: `content-data:${decoded}`, cache: gzipCache });
+          return;
+        }
+      }
+    }
     if (!gen?.gen && mount.name === 'public' && absPath === path.join(mount.dir, 'index.html')) {
       let rendered;
       try { rendered = await runtime.renderIndex(absPath); }

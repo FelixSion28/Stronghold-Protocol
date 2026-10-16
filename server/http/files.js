@@ -190,7 +190,10 @@ export class CompressCache {
 
 /** The cache's former name (it held gzip only). */
 export const GzipCache = CompressCache;
-export const pickEncoding = (header) => preferredEncoding(header);
+export const pickEncoding = (header) => {
+  const prefs = encodingPreferences(header);
+  return preferredEncoding(header, prefs.has('br') && process.env.SP_HTTP_BROTLI !== '0');
+};
 
 // ---------------------------------------------------------------------------------------------------
 // HTTP helpers
@@ -286,7 +289,7 @@ function cacheControlFor(ext, mountName, segments, query) {
 
 /**
  * One file → the response.
- * @param {{ contentHash?: string | null, cacheControl?: string | null, headers?: Record<string, string> | null }} [opts]
+ * @param {{ contentHash?: string | null, cacheControl?: string | null, headers?: Record<string, string> | null, headRanges?: boolean }} [opts]
  *   contentHash: the file's content hash (assetIndex.js) — the ETag then; cacheControl: overrides the policy of its
  *   path (a content-hashed URL); headers: extra response headers (a ui plugin's Content-Security-Policy), on 200,
  *   206 and 304 (they share this header object). 416 is an empty body and does not carry them.
@@ -296,7 +299,7 @@ export async function serveFile(req, res, absPath, stat, mountName, segments, qu
   const type = MIME[ext] || 'application/octet-stream';
   const compressible = COMPRESSIBLE.has(ext);
   // RFC 9110 §14.2: Range is defined only for GET; other methods ignore it, including for encoding selection.
-  const rangeHeader = req.method === 'GET' ? req.headers.range : undefined;
+  const rangeHeader = req.method === 'GET' || (opts.headRanges && req.method === 'HEAD') ? req.headers.range : undefined;
   const encoding = compressible && stat.size >= GZIP_MIN_BYTES && !rangeHeader ? pickEncoding(req.headers['accept-encoding']) : null;
   const baseTag = opts.contentHash || `${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}`;
   const etag = `"${baseTag}${encoding === 'br' ? '-br' : encoding === 'gzip' ? '-gz' : ''}"`;

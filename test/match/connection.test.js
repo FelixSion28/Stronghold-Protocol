@@ -6,11 +6,13 @@ import { Match } from '../../server/match/Match.js';
 import { StubMatch } from '../../server/match/StubMatch.js';
 import { DATA, makeMatch, checkInvariants, give, giveItem, chessOfTier } from './harness.js';
 import { bossPoolHp } from '../../server/match/finalAssault.js';
+import { DELAYS } from '../../server/match/match/common.js';
 
 const STATUSES = ['acting', 'ready', 'deciding', 'combat', 'done', 'helping', 'left', 'dead'];
 
 test('public throttling starts at broadcast time even when building the previous snapshot was delayed', () => {
-  let now = 100;
+  const interval = DELAYS.PUBLIC_THROTTLE;
+  let now = interval;
   let revision = 0;
   const sent = [];
   const timers = [];
@@ -28,12 +30,12 @@ test('public throttling starts at broadcast time even when building the previous
     _maybeSendPublic: Match.prototype._maybeSendPublic,
   };
   match._maybeSendPublic(false);
-  now = 200;
+  now = interval * 2;
   match._maybeSendPublic(false);
-  assert.deepEqual(sent, [116], 'the second frame waits for the full interval after the first broadcast');
+  assert.deepEqual(sent, [interval + 16], 'the second frame waits for the full interval after the first broadcast');
   now = timers[0].at;
   timers[0].fn();
-  assert.deepEqual(sent, [116, 216]);
+  assert.deepEqual(sent, [interval + 16, interval * 2 + 16]);
 });
 
 test('constructor validation mirrors the stub; start() sends the first m.public and one m.private per human', () => {
