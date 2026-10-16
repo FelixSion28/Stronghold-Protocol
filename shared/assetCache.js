@@ -5,6 +5,9 @@ export const ASSET_CACHE_META = 'sp-asset-cache-meta-v1';
 export const CACHE_KEY_PREFIX = '/__sp_asset_cache__/sha256/';
 export const MAX_ASSET_BYTES = 128 * 1024 * 1024;
 export const MAX_CATALOG_FILES = 100000;
+// Content-hashed media URLs accompany the existing plain/fallback aliases (one mp3 has 17).
+// Keep the former 16-alias budget for each of the plain and hashed forms.
+export const MAX_ASSET_ALIASES = 32;
 export const MAX_MANIFEST_BYTES = 32 * 1024 * 1024;
 const SHA = /^[a-f0-9]{64}$/;
 const TYPES = /\.(?:png|jpe?g|gif|webp|avif|bmp|svg|mp3|m4a|aac|ogg|oga|opus|wav|woff2?|ttf|otf|css|json|atlas|obj|skel|bin)$/i;
@@ -37,7 +40,7 @@ export function validateAssetCatalog(catalog) {
   for (const file of catalog.files) {
     if (!file || !safeAssetPath(file.url) || !Number.isSafeInteger(file.bytes) || file.bytes < 1 || file.bytes > MAX_ASSET_BYTES
       || !SHA.test(file.sha256 || '') || typeof file.type !== 'string' || !file.type || /[\r\n]/.test(file.type)
-      || !Array.isArray(file.aliases) || file.aliases.length > 16) throw assetCacheError('ASSET_CACHE_BAD_CATALOG');
+      || !Array.isArray(file.aliases) || file.aliases.length > MAX_ASSET_ALIASES) throw assetCacheError('ASSET_CACHE_BAD_CATALOG');
     for (const url of [file.url, ...file.aliases]) {
       if (!safeAssetPath(url, true) || urls.has(url)) throw assetCacheError('ASSET_CACHE_BAD_CATALOG');
       urls.add(url);
