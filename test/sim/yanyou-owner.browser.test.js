@@ -53,13 +53,14 @@ test('炎佑 owner preference gives identical attacks, locks, positions and resu
       await page.goto(`${remote || `http://127.0.0.1:${server.port}`}/sim/spec.js`);
       const cases = ['boss', 'hidden'].flatMap(kind => ['p1', 'p2'].map(owner => ({ kind, owner })));
       const node = cases.map(c => run(specModule, new DataSource(raw, getDefaultSource()), c.kind, c.owner));
-      const web = await page.evaluate(async (raw, cases, source) => {
+      // Puppeteer injects this test function through DevTools; no page-side eval or weaker CSP is needed.
+      const web = await page.evaluate(`(async (raw, cases) => {
         const { loadBrowserSim } = await import('/js/battle/runner.js');
         const { DataSource } = await import('/sim/simdata.js');
         const { spec, ds } = await loadBrowserSim();
-        const run = new Function(`return (${source})`)();
+        const run = (${run.toString()});
         return cases.map(c => run(spec, new DataSource(raw, ds), c.kind, c.owner));
-      }, raw, cases, run.toString());
+      })(${JSON.stringify(raw)}, ${JSON.stringify(cases)})`);
       assert.deepEqual(errors, []);
       assert.deepEqual(web, node);
       for (const [i, c] of cases.entries()) {
@@ -86,13 +87,13 @@ test('all ten real boss waves: four 炎佑 preserve targeting invariants and Nod
       const errors = [];
       page.on('pageerror', e => errors.push(e.message));
       await page.goto(`${remote || `http://127.0.0.1:${server.port}`}/sim/spec.js`);
-      const web = await page.evaluate(async (specs, source) => {
+      const web = await page.evaluate(`(async (specs) => {
         const { loadBrowserSim } = await import('/js/battle/runner.js');
         const tokens = await import('/sim/content/tokens.js');
         const { spec, ds } = await loadBrowserSim();
-        const audit = new Function(`return (${source})`)();
+        const audit = (${auditYanyouWave.toString()});
         return specs.map(s => audit(spec, tokens, ds, s));
-      }, specs, auditYanyouWave.toString());
+      })(${JSON.stringify(specs)})`);
       assert.deepEqual(errors, []);
       for (const [i, spec] of specs.entries()) {
         assert.deepEqual(web[i], node[i], `${spec.bossId}: deployed/browser and local Node match`);
