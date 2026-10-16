@@ -53,7 +53,8 @@ export function planSolos(rooms, entries) {
     byDiff.get(e.difficulty).push(e);
   }
   if (!byDiff.size) return [];
-  const waiting = [...rooms].filter((r) => isMatchable(r) && byDiff.has(r.difficulty))
+  const waiting = [...rooms].filter((r) => isMatchable(r) && byDiff.has(r.difficulty)
+    && r.content?.vanilla !== false && !r.content?.plugins?.length)
     .sort((a, b) => (a.searchSince ?? 0) - (b.searchSince ?? 0) || (a.code < b.code ? -1 : 1));
   const plans = [];
   for (const r of waiting) {

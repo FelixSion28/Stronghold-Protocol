@@ -52,7 +52,9 @@ export class RuntimeCache {
         const url = prefix + file.name;
         if (file.isDirectory()) await walk(url + '/', path.join(dir, file.name), extensions);
         else if (file.isFile() && extensions.has(path.extname(file.name).toLowerCase())
-          && url !== '/js/asset-cache-worker.js' && !(url.startsWith('/sim/') && file.name.toLowerCase() === 'nodedata.js')) {
+          && url !== '/js/asset-cache-worker.js'
+          && !['/data/assets.json', '/data/local-assets.json', '/data/local-fx.json'].includes(url)
+          && !(url.startsWith('/sim/') && file.name.toLowerCase() === 'nodedata.js')) {
           await add(url, path.join(dir, file.name));
         }
       }

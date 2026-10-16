@@ -74,7 +74,7 @@ test('media aliases match extension-less and explicit-extension priority/fallbac
   assert.ok(mp3.aliases.includes('/media/bgm/track.wav'), 'missing explicit extension falls back to mp3');
   assert.ok(ogg.aliases.includes('/media/bgm/track.ogg'));
   assert.ok(!ogg.aliases.includes('/media/bgm/track'));
-  assert.equal(new Set(catalog.files.flatMap((x) => x.aliases)).size, 8);
+  assert.equal(new Set(catalog.files.flatMap((x) => x.aliases.filter((url) => !url.includes('/~')))).size, 8);
 });
 
 test('local token models and atlas-only texture dependencies enter the complete package', async (t) => {

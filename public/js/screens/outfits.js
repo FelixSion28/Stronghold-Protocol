@@ -11,7 +11,7 @@ import { html, Button, MicroLabel, Modal, Spinner } from '../ui/components.js';
 import { Img } from '../ui/gameComponents.js';
 import { data, useData } from '../data.js';
 import { useStore } from '../store.js';
-import { outfitArtUrl, defaultArtUrl, spineEntry } from '../assets.js';
+import { outfitArtUrl, defaultArtUrl, outfitRec, outfitSpine } from '../outfitAssets.js';
 import { outfitStore, setOutfit, outfitsOf, applyOutfitsImport } from '../ui/outfits.js';
 import { serializeOutfits, parseOutfitsImport, OUTFITS_IMPORT_MAX_BYTES } from '../../../shared/outfits.js';
 import { copyText } from '../ui/clipboard.js';
@@ -254,7 +254,7 @@ export function OutfitPanel({ m, chess }) {
   const wornRec = worn ? list.find((r) => r.id === worn) : null;
   const art = worn ? outfitArtUrl(m, worn, 'art') : defaultArtUrl(m, charId);
   const artName = wornRec?.name || chess.name || charId;
-  const model = worn && spineEntry(m, worn) ? worn : charId;
+  const model = worn && outfitSpine(outfitRec(m, worn)) ? worn : charId;
   // the artwork button: '点击查看大图' // en: "Click to view full size" · '查看大图：{name}' // en: "View full size: {name}"
   return html`<div class="lo-detail__body ofit" data-testid="outfit-panel">
     <section class="ofit-stage">
