@@ -220,3 +220,16 @@ test('catalog matches browser validation and canonical URL map for aliases', asy
   assert.equal(map.get('/media/a'), map.get('/assets/audio/a.mp3'));
   assert.equal(map.get('/assets/audio/a.ogg'), map.get('/media/a.ogg'));
 });
+
+test('a single installed audio format has valid plain and hashed fallback aliases', async (t) => {
+  const f = await fixture(t, { audio: '/assets/audio/track.mp3' });
+  await f.put('/assets/audio/track.mp3', 'mp3');
+  const catalog = await createAssetCacheCatalog(f);
+  assert.equal(catalog.files[0].aliases.length, 17);
+  assert.doesNotThrow(() => validateAssetCatalog(catalog));
+  const hash = catalog.files[0].sha256.slice(0, 16);
+  const map = catalogURLMap(catalog);
+  for (const alias of ['/media/track', '/media/track.wav', `/media/~${hash}/track`, `/media/~${hash}/track.wav`]) {
+    assert.equal(map.get(alias), catalog.files[0], alias);
+  }
+});

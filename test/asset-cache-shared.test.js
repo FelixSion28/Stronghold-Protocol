@@ -1,13 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { safeAssetPath, safeAssetZipName, decodedAssetPath, parseAssetRange, validateAssetCatalog,
-  assetContentKey, isVerifiedAssetResponse, validatedCacheHeaders, sha256Hex } from '../shared/assetCache.js';
+  assetContentKey, isVerifiedAssetResponse, validatedCacheHeaders, sha256Hex, MAX_ASSET_ALIASES } from '../shared/assetCache.js';
 import { createAssetCacheManager } from '../public/js/assetCache.js';
 
 const entry = { url: '/assets/audio/中 文.mp3', bytes: 3,
   sha256: 'a'.repeat(64), type: 'audio/mpeg', aliases: ['/media/中 文'] };
 const fixture = () => ({ schema: 1, version: 'b'.repeat(64), files: [{ ...entry, aliases: [...entry.aliases] }],
   totalFiles: 1, totalBytes: 3, complete: true, missing: [] });
+
+test('plain plus hashed aliases retain a bounded per-file budget', () => {
+  const catalog = fixture();
+  catalog.files[0].aliases = Array.from({ length: MAX_ASSET_ALIASES }, (_, i) => `/media/track-${i}`);
+  assert.equal(validateAssetCatalog(catalog), catalog);
+  catalog.files[0].aliases.push('/media/one-too-many');
+  assert.throws(() => validateAssetCatalog(catalog), /BAD_CATALOG/);
+});
 
 test('catalog accepts decoded Unicode art and media aliases, rejects path/private/code collisions', () => {
   assert.equal(validateAssetCatalog(fixture()).totalFiles, 1);
