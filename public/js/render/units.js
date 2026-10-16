@@ -2082,19 +2082,8 @@ export class UnitView {
 
   /** The impostor box ({ x0, y0, w, h, over } in skeleton units), null while the model's clips are still measured. */
   _impBox() {
-    // every pose of the model (SpineActor.extents): a box from the pose of the first render cut later ones off at its
-    // edge (Ashlock's cannon when firing reached 412 units, the box 412 at most). Rebuilt when the extents change (the
-    // deploy clip ends).
-    const e = this.ctx.legacyImpostorBox?.() ? null : this.actor.extents?.() || null;
-    if (this._box && this._box.src === e) return this._box;
-    if (e) {
-      const pad = 24 + 0.04 * Math.max(e[2] - e[0], e[3] - e[1]); // mixes between clips, poses between samples
-      const x0 = Math.min(e[0] - pad, -140), x1 = Math.max(e[2] + pad, 140);
-      const y0 = Math.min(e[1] - pad, -260), y1 = Math.max(e[3] + pad, 30);
-      this._box = { x0, y0, w: x1 - x0, h: y1 - y0, src: e };
-      return this._box;
-    }
     if (this._box) return this._box;
+    if (this.ctx?.legacyImpostorBox?.()) return (this._box = this._legacyBox());
     const a = this.actor;
     const names = this._clipNames();
     const rects = typeof a.clipBounds === 'function' ? a.clipBounds([...names.keys()]) : false;
@@ -2142,6 +2131,9 @@ export class UnitView {
     if (!this.lodIdle) {
       for (const [name, once] of playedClips(anims, FORMS[this.info.spine || this.info.defId] || null)) {
         if (a.has(name)) out.set(name, out.has(name) ? out.get(name) && once : once);
+        // Fortress actors also play the cannon twin of the authored melee role.
+        const cannon = this.fortress ? name.replace(/_A(?=_|$)/, '_B') : name;
+        if (cannon !== name && a.has(cannon)) out.set(cannon, out.has(cannon) ? out.get(cannon) && once : once);
       }
       if (!anims.die && a.has('Die')) out.set('Die', false);
     }

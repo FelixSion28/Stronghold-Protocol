@@ -6,6 +6,8 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createAssetCacheCatalog, assetCacheURLProblem } from '../server/assetCacheCatalog.js';
 import { validateAssetCatalog, catalogURLMap } from '../shared/assetCache.js';
+import { createAssetIndex } from '../server/http/assetIndex.js';
+import { rewriteManifest } from '../server/http/assetViews.js';
 
 async function fixture(t, assets = {}, local) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sp-asset-catalog-'));
@@ -36,6 +38,27 @@ test('catalog hashes deployed bytes, deduplicates references and keeps stable or
   await f.put('/assets/icon.png', 'changed');
   const changed = await createAssetCacheCatalog(f);
   assert.notEqual(changed.version, first.version, 'same path/length with changed bytes updates asset version');
+});
+
+test('0.3.0 served model hashes and the official statistics SVG use the existing verified cache', async (t) => {
+  const model = { skel: '/assets/model/m.skel', atlas: '/assets/model/m.atlas', textures: ['/assets/model/m.png'], anims: {} };
+  const manifest = { chars: { char_test: { spine: { front: model } } }, ui: { title: '/assets/ui/title.svg' } };
+  const f = await fixture(t, manifest);
+  for (const url of [model.skel, model.atlas, ...model.textures, manifest.ui.title]) await f.put(url, url.endsWith('.svg') ? '<svg xmlns="http://www.w3.org/2000/svg"/>' : 'test');
+  const index = createAssetIndex({ publicDir: f.publicDir, cacheFile: null, delayMs: 0 });
+  t.after(() => index.close());
+  index.start();
+  await index.whenReady();
+  const served = rewriteManifest(manifest, 'assets.json', index).doc;
+  const catalog = await createAssetCacheCatalog(f);
+  validateAssetCatalog(catalog);
+  const lookup = catalogURLMap(catalog);
+  const entry = served.chars.char_test.spine.front;
+  for (const url of [entry.skel, entry.atlas, ...entry.textures, served.ui.title]) {
+    assert.match(url, /\/~[0-9a-f]{16}\//);
+    assert.ok(lookup.has(url), `served URL is pinned to verified bytes: ${url}`);
+  }
+  assert.equal(lookup.get(served.ui.title).type, 'image/svg+xml');
 });
 
 test('missing and invalid declarations are reported without exposing absolute filesystem paths', async (t) => {

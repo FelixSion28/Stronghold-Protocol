@@ -35,6 +35,14 @@ function actor(charId, skillIndex, rangedShot) {
 }
 const run = (a, s, dt = 1 / 60) => { for (let t = 0; t < s - 1e-9; t += dt) a.update(dt); };
 
+test('a fortress measured while blocking includes both melee and cannon clips in its impostor bounds', async () => {
+  const { UnitView } = await import('../../public/js/render/units.js');
+  const view = Object.create(UnitView.prototype);
+  Object.assign(view, { actor: actor('char_4039_horn', 2, false), fortress: true, info: { spine: 'char_4039_horn' } });
+  const clips = view._clipNames();
+  for (const name of ['Attack_A', 'Attack_B', 'Skill_3_A_Loop', 'Skill_3_B_Loop']) assert.ok(clips.has(name), name);
+});
+
 test('号角: the cannon plays the _B clips, the melee the _A ones — normal attacks and every skill', () => {
   for (const [ranged, atk] of [[true, 'Attack_B'], [false, 'Attack_A']]) {
     const a = actor('char_4039_horn', 2, ranged);

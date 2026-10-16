@@ -59,7 +59,7 @@ test('equipment uses full fixed three/four-person stock, with five-person limits
   }
 });
 
-test('exhausting one equipment group gates only its shop, reward, golden upgrade and effect rolls', () => {
+test('exhausted group keeps displayed offers, records its own debt and gates fresh rolls and upgrades', () => {
   const h = makeMatch({ humans: 7, seed: 11, fake: true, data: stockData() }).start().toPrep(1);
   const m = h.m, a = h.ps('p_0'), teammate = h.ps('p_1'), b = h.ps('p_4');
   try {
@@ -73,10 +73,12 @@ test('exhausting one equipment group gates only its shop, reward, golden upgrade
     assert.ok(x && y);
     assert.equal(m.itemPoolFor(a).left(PACK), 0);
     assert.equal(m.itemPoolFor(b).left(PACK), 2);
-    assert.equal(a.buy(0).error, 'SOLD_OUT');
-    assert.equal(a.funds, 20);
-    assert.equal(a.pickReward(0).error, 'SOLD_OUT');
-    assert.equal(a.offers.length, 1);
+    assert.ok(a.buy(0).ok);
+    assert.equal(a.funds, 19);
+    assert.ok(a.pickReward(0).ok);
+    assert.equal(a.offers.length, 0);
+    assert.equal(m.itemPoolFor(a).debtOf(PACK), 2);
+    assert.equal(m.itemPoolFor(b).debtOf(PACK), 0);
     assert.equal(a.upgradeItem(x), false);
     assert.equal(a._rollItemSlot(), null);
     assert.equal(b._rollItemSlot().id, PACK);
@@ -87,11 +89,16 @@ test('exhausting one equipment group gates only its shop, reward, golden upgrade
     assert.deepEqual(cb.rollPool('test_group_item'), { kind: 'item', id: PACK });
     assert.ok(b.pickReward(0).ok);
     assert.equal(m.itemPoolFor(b).left(PACK), 1);
-    assert.ok(a.destroy(x.uid).ok);
+    const golden = a.hand.find(p => p?.kind === 'item' && m.gd.isGolden(p.id));
+    assert.ok(golden, 'displayed offers still merge normally');
+    assert.ok(a.destroy(golden.uid).ok);
+    assert.equal(m.itemPoolFor(a).left(PACK), 0);
+    assert.equal(m.itemPoolFor(a).debtOf(PACK), 0, 'golden copy repays two copies of debt');
+    assert.equal(m.itemPoolFor(b).left(PACK), 1);
+    assert.ok(teammate.destroy(y.uid).ok);
+    assert.equal(m.itemPoolFor(a).debtOf(PACK), 0);
     assert.equal(m.itemPoolFor(a).left(PACK), 1);
     assert.equal(m.itemPoolFor(b).left(PACK), 1);
-    assert.ok(a.pickReward(0).ok);
-    assert.equal(m.itemPoolFor(a).left(PACK), 0);
     checkInvariants(m);
   } finally { m.dispose(); }
 });
