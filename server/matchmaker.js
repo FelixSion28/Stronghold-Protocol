@@ -32,7 +32,7 @@ export function groupReady(room) {
 }
 
 export function isMatchable(room) {
-  if (!room || room.disposed || room.match || room.mode !== 'coop' || !room.searching || !room.hostId) return false;
+  if (!room || room.test || room.disposed || room.match || room.mode !== 'coop' || !room.searching || !room.hostId) return false;
   const n = roomSize(room);
   return n >= 1 && n < roomCapacity(room) && groupReady(room);
 }

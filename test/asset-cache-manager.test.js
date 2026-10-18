@@ -5,6 +5,21 @@ import { createAssetCacheManager } from '../public/js/assetCache.js';
 const catalog = { schema: 1, version: 'a'.repeat(64), files: [{ url: '/assets/a.png', bytes: 3,
   sha256: 'b'.repeat(64), type: 'image/png', aliases: [] }], totalFiles: 1, totalBytes: 3, complete: true, missing: [] };
 
+test('explicit stale cleanup refreshes the catalog and refuses to prune on a failed update', async () => {
+  const f = fixture();
+  try {
+    await f.manager.initialize();
+    await f.manager.pruneStale();
+    assert.equal(f.messages.filter((m) => m.type === 'ASSET_CACHE_PRUNE').length, 1);
+    f.broken(true);
+    await assert.rejects(f.manager.pruneStale(), { code: 'ASSET_CACHE_BAD_CATALOG' });
+    assert.equal(f.messages.filter((m) => m.type === 'ASSET_CACHE_PRUNE').length, 1);
+    f.broken(false);
+    await f.manager.setPlaying(true);
+    await assert.rejects(f.manager.pruneStale(), { code: 'ASSET_CACHE_PLAYING' });
+  } finally { f.manager.destroy(); }
+});
+
 function fixture({ storage = {}, secure = true } = {}) {
   const messages = [], work = [], listeners = new Map();
   let catalogReads = 0, broken = false, playing = false;

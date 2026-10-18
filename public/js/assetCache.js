@@ -10,7 +10,7 @@ const initialState = (env) => {
     speedBps: 0, version: null, storage: { usage: 0, quota: 0, persisted: false,
       persistenceSupported: supported && typeof env.navigator?.storage?.persist === 'function' }, playing: false,
     catalogComplete: false, serverMissingFiles: 0, importStats: null, scanStats: null, waiting: false, policy: null,
-    persistence: 'idle' };
+    persistence: 'idle', pruneStats: null };
 };
 
 export function createAssetCacheManager({ environment = globalThis, doFetch, workerURL = '/js/asset-cache-worker.js',
@@ -224,7 +224,11 @@ export function createAssetCacheManager({ environment = globalThis, doFetch, wor
           patch({ playing: ownPlaying || !!playback.playing });
         }
         if (job.paused) throw assetCacheError('ASSET_CACHE_PAUSED');
-        if (action === 'clear') {
+        if (action === 'prune') {
+          const result = await swMessage('ASSET_CACHE_PRUNE');
+          patch({ pruneStats: { removedFiles: result.removedFiles || 0 } });
+          await runWorker('scan');
+        } else if (action === 'clear') {
           await swMessage('ASSET_CACHE_CLEAR');
           patch({ readyFiles: 0, readyBytes: 0, missingFiles: state.totalFiles, missingBytes: state.totalBytes });
         } else {
@@ -263,7 +267,7 @@ export function createAssetCacheManager({ environment = globalThis, doFetch, wor
       if (!(file instanceof env.Blob)) return Promise.reject(assetCacheError('ASSET_CACHE_ZIP_INVALID'));
       return perform('import', { file });
     },
-    pause, clear: () => perform('clear'),
+    pause, clear: () => perform('clear'), pruneStale: () => perform('prune'),
     requestPersistence() {
       if (!state.supported || !state.storage.persistenceSupported) {
         patch({ persistence: 'unsupported' });
@@ -490,6 +494,35 @@ export async function countImportedFiles(cachesApi = globalThis.caches) {
   return n;
 }
 
+/**
+ * Delete the stored pathnames that `wanted` does not name and rewrite the index to what remains (设置 → 素材存储 →
+ * 清理旧版本素材, 0.3.1). A file that changed got a new hash, so its old copy is never served again (shared/assetPaths.js)
+ * but stayed here. `removedFiles` counts /assets/ and /fonts/ only, like countImportedFiles (an audio file is stored twice).
+ * @param {Set<string>} wanted pathnames the server's current manifests name, their /media aliases included
+ * @returns {Promise<{ removed: number, removedFiles: number, kept: number }>}
+ */
+export async function pruneImportedPaths(wanted, cachesApi = globalThis.caches) {
+  const cache = await cachesApi.open(IMPORTED_ASSET_CACHE);
+  // no index yet: the keys, when Cache.keys() still answers (a whole pack always wrote an index)
+  const stored = (await readImportIndex(cache)) ?? await keyPaths(cache);
+  const stale = [...stored].filter((p) => !wanted.has(p));
+  const kept = [...stored].filter((p) => wanted.has(p));
+  let removed = 0, removedFiles = 0;
+  for (let i = 0; i < stale.length; i += 32) {
+    await Promise.all(stale.slice(i, i + 32).map(async (p) => {
+      let gone;
+      try { gone = await cache.delete(p); } catch { kept.push(p); return; }
+      if (!gone) return; // listed but absent: it leaves the index
+      removed++;
+      if (p.startsWith('/assets/') || p.startsWith('/fonts/')) removedFiles++;
+    }));
+  }
+  await cache.put(IMPORTED_INDEX_URL, new Response(JSON.stringify(kept.sort()), {
+    status: 200, headers: { 'Content-Type': 'application/json' },
+  }));
+  return { removed, removedFiles, kept: kept.length };
+}
+
 /** Delete every version of the import cache. The worker stays registered. */
 export async function clearImportedAssets(cachesApi = globalThis.caches) {
   if (!cachesApi?.delete) return false;
@@ -514,6 +547,20 @@ export async function storageEstimate(nav = globalThis.navigator) {
     const est = await nav?.storage?.estimate?.();
     if (!est) return null;
     return { usage: est.usage || 0, quota: est.quota || 0 };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the browser already keeps the origin's storage (`navigator.storage.persisted()`), or null where it cannot say:
+ * StorageManager exists only in a secure context, so plain http to a LAN IP reads null too. 设置 → 素材存储 shows it.
+ * @returns {Promise<boolean | null>}
+ */
+export async function storagePersisted(nav = globalThis.navigator) {
+  try {
+    if (!nav?.storage?.persisted) return null;
+    return await nav.storage.persisted();
   } catch {
     return null;
   }

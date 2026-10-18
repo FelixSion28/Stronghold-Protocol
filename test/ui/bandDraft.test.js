@@ -37,7 +37,7 @@ describe('server: skip requires a successor and remaining quota', () => {
       assert.equal(m.draftTurn(), last);
       assert.equal(m.publicView().draft.order.length, humans, 'the published order retains finished players');
       assert.equal(m.draft.skipsLeft[last], 1);
-      assert.deepEqual(m.handle(last, { t: 'g.bandSkip' }), { error: ERR.BAD_TARGET, detail: 'nobody to pass to' });
+      assert.deepEqual(m.handle(last, { t: 'g.bandSkip' }), { error: ERR.BAD_TARGET, detail: 'no manual teammate to pass to' });
       assert.equal(m.draftTurn(), last);
       assert.equal(m.draft.skipsLeft[last], 1, 'a refused skip consumes no quota');
       assert.deepEqual(m.handle(last, { t: 'g.band', bandId: m.defaultBand(last) }), { ok: true });

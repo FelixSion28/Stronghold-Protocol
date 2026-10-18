@@ -340,8 +340,9 @@ function setPhase(phase, variant) {
       break;
     case PHASE.RESULT: {
       pub.round = 14;
-      const result = buildResult(!VARIANTS.has('defeat'));
-      store.patch('match', { result });
+      // late: the RESULT phase first, m.result a moment later (as from the server)
+      if (VARIANTS.has('late')) setTimeout(() => store.patch('match', { result: buildResult(!VARIANTS.has('defeat')) }), 800);
+      else store.patch('match', { result: buildResult(!VARIANTS.has('defeat')) });
       // the result screen's match damage chart (ui/damageChart.js DamageSummary) from your final lineup
       damageLog?.seed(mockDamageHistory(result.players.find((p) => p.playerId === ME)?.lineup || [], result.roundsPassed));
       break;

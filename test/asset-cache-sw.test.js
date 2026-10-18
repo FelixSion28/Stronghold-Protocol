@@ -92,3 +92,30 @@ test('SW serializes pin/playing writes and never lets a late same-version pin cl
   assert.equal((await f.message('page', { type: 'ASSET_CACHE_CAN_MUTATE' })).playing, true);
   assert.equal((await f.message('page', { type: 'ASSET_CACHE_CLEAR' })).error, 'ASSET_CACHE_PLAYING');
 });
+
+test('explicit prune removes stale content but preserves both catalogs of live pages', async () => {
+  const f = await fixture(); f.addClient('old'); f.addClient('new');
+  const nextEntry = { ...entry, sha256: 'c'.repeat(64) };
+  const next = { ...catalog, version: 'd'.repeat(64), files: [nextEntry] };
+  await f.message('old', { type: 'ASSET_CACHE_PIN', catalog });
+  await f.message('new', { type: 'ASSET_CACHE_PIN', catalog: next });
+  const cache = await f.storage.open(helpers.ASSET_CACHE_NAME);
+  for (const hash of [sha256, nextEntry.sha256, 'e'.repeat(64)]) {
+    await cache.put(origin + helpers.assetContentKey(hash), new Response('content'));
+  }
+  const result = await f.message('new', { type: 'ASSET_CACHE_PRUNE' });
+  assert.equal(result.ok, true);
+  assert.equal(result.removedFiles, 1);
+  assert.ok(await cache.match(origin + helpers.assetContentKey(sha256)));
+  assert.ok(await cache.match(origin + helpers.assetContentKey(nextEntry.sha256)));
+  assert.equal(await cache.match(origin + helpers.assetContentKey('e'.repeat(64))), undefined);
+});
+
+test('prune without a usable catalog deletes no existing content', async () => {
+  const f = await fixture(); f.addClient('page');
+  const cache = await f.storage.open(helpers.ASSET_CACHE_NAME);
+  const key = origin + helpers.assetContentKey(sha256);
+  await cache.put(key, new Response('keep'));
+  assert.equal((await f.message('page', { type: 'ASSET_CACHE_PRUNE' })).error, 'ASSET_CACHE_CATALOG_UNAVAILABLE');
+  assert.equal(await (await cache.match(key)).text(), 'keep');
+});

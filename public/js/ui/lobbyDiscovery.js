@@ -17,6 +17,7 @@ export function LobbyRoomRow({ room, onJoin, busy, connected }) {
     <div class="lobby-directory__room-main">
       <span class="lobby-directory__room-code num" title=${t('房间号')}>${room.code}</span>
       <span class="lobby-directory__room-mode">${room.mode === 'solo' ? t('独立房间') : t('同盟模拟')}</span>
+      ${room.test ? html`<span>${t('测试')}</span>` : null}
       <${DifficultyTag} difficulty=${room.difficulty} size="sm" />
     </div>
     <div class="lobby-directory__room-meta">

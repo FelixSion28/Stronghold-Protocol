@@ -92,15 +92,21 @@ async function handleMessage(event) {
     } else if (data.type === 'ASSET_CACHE_PRUNE') {
       if (await livePlaying()) throw new Error('ASSET_CACHE_PLAYING');
       const live = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      const versions = new Set([(await readJSON(meta, latestPath))?.version]);
-      for (const client of live) versions.add((await getPin(client.id))?.version);
+      const versions = new Set([(await readJSON(meta, latestPath))?.version].filter(Boolean));
+      for (const client of live) {
+        const version = (await getPin(client.id))?.version;
+        if (version) versions.add(version);
+      }
+      if (!versions.size) throw new Error('ASSET_CACHE_CATALOG_UNAVAILABLE');
       const keep = new Set();
       for (const version of versions) {
         const indexed = await getCatalog(version);
-        for (const entry of indexed?.catalog.files || []) keep.add(origin + assetContentKey(entry.sha256));
+        if (!indexed) throw new Error('ASSET_CACHE_CATALOG_UNAVAILABLE');
+        for (const entry of indexed.catalog.files) keep.add(origin + assetContentKey(entry.sha256));
       }
       const cache = await caches.open(ASSET_CACHE_NAME);
-      for (const key of await cache.keys()) if (!keep.has(key.url)) await cache.delete(key);
+      let removedFiles = 0;
+      for (const key of await cache.keys()) if (!keep.has(key.url) && await cache.delete(key)) removedFiles++;
       const livePins = new Set(live.map((client) => pinPath(client.id)));
       for (const key of await meta.keys()) {
         if (key.url.includes('/__sp_asset_cache__/pin/') && !livePins.has(key.url)) { await meta.delete(key); }
@@ -109,7 +115,7 @@ async function handleMessage(event) {
         }
       }
       for (const id of pins.keys()) if (!livePins.has(pinPath(id))) pins.delete(id);
-      port.postMessage({ ok: true });
+      port.postMessage({ ok: true, removedFiles });
     } else throw new Error('ASSET_CACHE_BAD_MESSAGE');
   } catch (error) { port.postMessage({ ok: false, error: error.code || error.message || 'ASSET_CACHE_STORAGE_ERROR' }); }
 }

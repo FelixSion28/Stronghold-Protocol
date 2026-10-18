@@ -27,6 +27,7 @@ export function roomSummary(room) {
     code: room.code,
     mode: room.mode,
     difficulty: room.difficulty,
+    ...(room.test ? { test: true } : {}),
     capacity: room.capacity,
     playerCount: humanCount + botCount,
     humanCount,
@@ -159,7 +160,7 @@ export class LobbyDiscovery {
     const current = this.lobby.roomOf(session);
     if (current?.match) return fail(ERR.ROOM_STARTED, 'leave your running match first');
     let candidates = [...this.lobby.rooms.values()].filter((room) => room !== current
-      && room.mode === 'coop' && !room.match && room.freeSeat() >= 0);
+      && !room.test && room.mode === 'coop' && !room.match && room.freeSeat() >= 0);
     if (capacity != null) {
       const preferred = candidates.filter((room) => room.capacity === capacity);
       if (preferred.length) candidates = preferred;
