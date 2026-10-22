@@ -2,6 +2,10 @@
 
 本目录最初来自 LongQianChen 的 `feat/IncreasePlayerCapacity` 分支，保存开发的需求、决定、实现依据、验证结果和后续工作。2026-10-10 合入 FelixSion28 的 master；来源分支的历史状态与路径保留在原记录中，Felix 当前整合状态见 [DEV-20261010-12](records/2026-10-10-12-felix-capacity-merge.md)。上游原有文档保持现有路径；今后的分支开发记录集中写在这里。
 
+## master 与定制分支边界
+
+2026-10-22：按用户要求，本地 `master`、远端 `origin/master` 与源仓库 `upstream/master` 已统一到 `c9d804f4`，不在 master 保留定制代码；本地 master 继续跟踪 upstream/master。旧 origin/master `40d0691c` 的全部历史已包含在远端 `feat/felix-customizations` / `09f68b05` 中。发行 `release/v0.3.1` 仍为 `72b347bb`，本次未部署。核对与推送结果见 [DEV-20261022-03](records/2026-10-22-03-master-origin-alignment.md)。
+
 ## 当前 0.3.0 维护基线
 
 2026-10-16：master 已快进至作者正式 v0.3.0 c24e17ee；定制分支 feat/felix-customizations 的升级与兼容收尾已完成，炎佑分支独立保留出生归属索敌，新发行在 release/v0.3.0 整合两者。旧 release/v0.2.5 和升级前保护分支保留。288 场景无额外漂移，Edge 关键链路与工具检查通过；完整 CI 初次失败后的复验、文件链接权限及未重新提取素材限制见 [DEV-20261016-02](records/2026-10-16-02-upstream-v030.md)。只更新本地，未推送或部署。

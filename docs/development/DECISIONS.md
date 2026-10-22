@@ -271,6 +271,8 @@
 - 既有备份分支保留。本次仅本地 Git 整理，不修改 `origin/master` 或线上部署。
 - 依据：[DEV-20261013-02](records/2026-10-13-02-branch-separation.md)；旧整合头为 `40d0691c`，作者最新 master 为 `cf7a9400`。
 
+- 2026-10-22 补充：用户明确要求“feat 下的才是定制版本，master 保持与源一致”，授权将 `origin/master` 也对齐原作者 master，替代上次任务未修改远端的范围。实时核对三者统一到 `c9d804f4`；旧 origin/master `40d0691c` 是远端 feat/felix-customizations `09f68b05` 的祖先，全部历史已保留。只用带精确旧哈希的 force-with-lease 更新 origin/master，不修改源仓库、发行分支或部署；见 [DEV-20261022-03](records/2026-10-22-03-master-origin-alignment.md)。
+
 ## D026 · v0.2.5 升级边界
 
 - 用户要求定制分支更新 0.2.5，并确认部署服务器 3000；3001 保留原版本，master 继续与作者原版一致。
