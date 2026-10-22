@@ -14,6 +14,10 @@ Versions: the first public release was **0.1.0** (2026-10-02, the state of §0�
 
 ---
 
+Q / X prefer the selected operator, otherwise the hovered operator, per the maintainer's correction in
+[DEV-20261022-04](development/records/2026-10-22-04-hotkeys-branch-integration.md).
+Current interaction contract: [design/client.md](design/client.md).
+
 ## Where each section lives
 
 Section numbers are global and never change: code, tests and the other documents cite them as "DESIGN §N". The

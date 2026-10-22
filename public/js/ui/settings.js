@@ -150,8 +150,8 @@ const VOICE_LANG_NAMES = {
 /** The 本土语言 switch's tooltip (its button: the short `voice-lang::本土语言`, en "Native"). */
 const VOICE_NATIVE_TIP = N_('有本土语言配音时使用'); // en: "Use native-language dub if available"
 /** The rebindable shortcuts' names (msgids), by action. */
-const HOTKEY_NAMES = { buy: N_('购买鼠标指向的商品'), refresh: N_('刷新商店'), freeze: N_('冻结 / 解冻商店'), levelUp: N_('升级调度中心'), retreat: N_('撤退鼠标指向的干员'),
-  sell: N_('出售鼠标指向的干员'), ready: N_('准备就绪 / 暂停（独立模拟）') };
+const HOTKEY_NAMES = { buy: N_('购买鼠标指向的商品'), refresh: N_('刷新商店'), freeze: N_('冻结 / 解冻商店'), levelUp: N_('升级调度中心'), retreat: N_('撤退干员（选中优先）'),
+  sell: N_('出售干员（选中优先）'), ready: N_('准备就绪 / 暂停（独立模拟）') };
 
 /**
  * 快捷键: each shortcut with its key. Click its key (or Enter / Space on it) and press the new one: Esc cancels (the
